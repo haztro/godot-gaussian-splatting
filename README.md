@@ -4,8 +4,8 @@ WIP attempt at getting 3d-gaussian splatting to work in Godot as simply as possi
 
 To load in the .ply files, I compiled a gdextension to use [happly](https://github.com/nmwsharp/happly) and have provided the binaries. Throw in a .ply file named "point_cloud.ply" and try it yourself - fair warning, the bigger files (1G+ take a while to load). Here's what it looks like currently:
 
-![bicycle](assets/bicycle.png)
+![bicycle](assets/bicycle.PNG)
 
-![train](assets/train.png)
+![train](assets/train.PNG)
 
-![garden](assets/garden.png)
+![garden](assets/garden.PNG)
