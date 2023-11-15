@@ -17,8 +17,40 @@ func pack_texture(width, vectors): # vectors is array of Color objects
 	var tex = ImageTexture.new()
 	tex = ImageTexture.create_from_image(img)
 	return tex
-
 	
+func pack_texture_sh(width, fdc, coeffs, num_coeffs_per_color):
+	var w = width
+	var h = max(w, int( floor(fdc[0].size() / w)) + 1)
+	var img = Image.new()
+	img = Image.create(w, h, false, Image.FORMAT_RGBAF)
+	
+	print(w)
+	print(h)
+	
+	var x: int
+	var y: int
+	var ind = 0
+	for i in range(fdc[0].size()):
+		y = ind / w
+		x = ind % w
+		img.set_pixel(x, y, Color(fdc[0][i], fdc[1][i], fdc[2][i]))
+		ind += 1
+		for j in range(num_coeffs_per_color):
+			y = ind / w
+			x = ind % w
+			var c = Color(
+				coeffs[0 * num_coeffs_per_color + j][i],
+				coeffs[1 * num_coeffs_per_color + j][i],
+				coeffs[2 * num_coeffs_per_color + j][i]
+				)
+			img.set_pixel(x, y, c)
+			ind += 1
+
+	var tex = ImageTexture.new()
+	tex = ImageTexture.create_from_image(img)
+	return tex
+
+
 # Called when the node enters the scene tree for the first time.
 func _ready():
 	$PLYLoader.load_ply("point_cloud.ply")
@@ -52,9 +84,9 @@ func _ready():
 		data.append(sca)
 		data.append(rot)
 		
-	var pos_tex = pack_texture(4096, data)
+	var pos_tex = pack_texture(10000, data)
 	$MultiMeshInstance3D.material_override.set_shader_parameter("data", pos_tex)
-	$MultiMeshInstance3D.material_override.set_shader_parameter("tex_width", 4096)
+	$MultiMeshInstance3D.material_override.set_shader_parameter("tex_width", 10000)
 	data.clear()
 	opacity.clear()
 	scale_0.clear()
@@ -79,22 +111,9 @@ func _ready():
 		print("f_rest_%d" % i)
 		coeffs.append($PLYLoader.get_vertex_property("f_rest_%d" % i))
 		
-	var features = []
-	for i in range(num_vertex):
-		features.append(Color(fdcs[0][i], fdcs[1][i], fdcs[2][i]))
-		for j in range(num_coeffs_per_color):
-			var c = Color(
-				coeffs[0 * num_coeffs_per_color + j][i],
-				coeffs[1 * num_coeffs_per_color + j][i],
-				coeffs[2 * num_coeffs_per_color + j][i]
-				)
-			features.append(c)
-
+	var sh_tex = pack_texture_sh(10000, fdcs, coeffs, num_coeffs_per_color)
 	fdcs.clear()
 	coeffs.clear()
-
-	var sh_tex = pack_texture(4096, features)
-	features.clear()
 	
 	$MultiMeshInstance3D.material_override.set_shader_parameter("sh_data", sh_tex)
 
