@@ -159,7 +159,7 @@ void vertex() {
 	y = rot_index / tex_width;
 	vec4 rot = texelFetch(data, ivec2(x, y), 0);
 
-	vec3 cov2d = computeCov2D(pos, o_scale.yzw, rot, MODELVIEW_MATRIX);
+	vec3 cov2d = computeCov2D(pos, o_scale.yzw, rot, VIEW_MATRIX);
 	float det = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
 	float det_inv = 1.0 / det;
 	vec3 conic = vec3(cov2d.z * det_inv, -cov2d.y * det_inv, cov2d.x * det_inv);
@@ -173,9 +173,12 @@ void vertex() {
     conic_and_opacity = vec4(conic, sigmoid(o_scale.x));
 
 	vec2 uv = (2.0 * UV - 1.0);
-	vec4 projPosition = PROJECTION_MATRIX * MODELVIEW_MATRIX * vec4(pos, 1.0);
+	vec4 projPosition = PROJECTION_MATRIX * VIEW_MATRIX * vec4(pos, 1.0);
 	projPosition = projPosition / projPosition.w;
-	POSITION = vec4(projPosition.xy + 2.0 * radius_ndc * uv, projPosition.zw);
+	
+	//VERTEX = vec3(projPosition.xy + 2.0 * uv * radius_ndc, projPosition.z);
+	//VERTEX = (MODELVIEW_MATRIX * vec4(VERTEX, 1.0)).xyz; 
+	POSITION = vec4(projPosition.xy + 2.0 * uv * radius_ndc, projPosition.zw);
 
 	int sh_index = INSTANCE_ID * 16;
 	vec3 shs[16];
@@ -196,17 +199,17 @@ void fragment() {
 	float power = -0.5 * (conic.x * d.x * d.x + conic.z * d.y * d.y) + conic.y * d.x * d.y;
 	float opacity = conic_and_opacity.w;
 	
-//	if (power > 0.0) {
-//		discard;
-//	}
+	if (power > 0.0) {
+		discard;
+	}
 
 	float alpha = min(0.99, opacity * exp(power));
 	
-	// Since godot doesn't have OIT just get rid of the transparent frags
-	if (alpha < transparent_thresh) {
-		discard;
-	}
+	//// Since godot doesn't have OIT just get rid of the transparent frags
+	//if (alpha < transparent_thresh) {
+		//discard;
+	//}
 	
 	ALBEDO = COLOR.rgb * alpha;
-//	ALPHA = alpha;
+	ALPHA = alpha;
 }

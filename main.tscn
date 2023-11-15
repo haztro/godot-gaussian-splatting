@@ -11,8 +11,8 @@ shader_parameter/tan_fovx = 0.0
 shader_parameter/tan_fovy = 0.0
 shader_parameter/focal_x = 0.0
 shader_parameter/focal_y = 0.0
-shader_parameter/modifier = 2.0
-shader_parameter/transparent_thresh = 0.5
+shader_parameter/modifier = 1.0
+shader_parameter/transparent_thresh = 0.4
 shader_parameter/sh_degree = null
 shader_parameter/tex_width = 0
 

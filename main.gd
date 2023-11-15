@@ -53,7 +53,7 @@ func pack_texture_sh(width, fdc, coeffs, num_coeffs_per_color):
 
 # Called when the node enters the scene tree for the first time.
 func _ready():
-	$PLYLoader.load_ply("point_cloud.ply")
+	$PLYLoader.load_ply("point_cloud1.ply")
 
 	var x = $PLYLoader.get_vertex_property("x")
 	var y = $PLYLoader.get_vertex_property("y")
@@ -69,17 +69,15 @@ func _ready():
 	var rot_2 = $PLYLoader.get_vertex_property("rot_2")
 	var rot_3 = $PLYLoader.get_vertex_property("rot_3")
 	
-	var num_vertex = len(x);
+	var num_vertex = len(x) / 2;
 	var max_rot = 0
 	
 	var data = []
 	for i in range(num_vertex):
 		var pos = Color(x[i], y[i], z[i], 0.0)
 		var sca = Color(opacity[i], scale_0[i], scale_1[i], scale_2[i])
-		var rot = Color(rot_0[i], rot_1[i], rot_2[i], rot_3[i])
-		var rot_norm = Vector4(rot_0[i], rot_1[i], rot_2[i], rot_3[i]).length()
-		if rot_norm > max_rot:
-			max_rot = rot_norm;
+		var rotn = Vector4(rot_0[i], rot_1[i], rot_2[i], rot_3[i]).normalized()
+		var rot = Color(rotn.x, rotn.y, rotn.z, rotn.w)
 		data.append(pos)
 		data.append(sca)
 		data.append(rot)
@@ -117,13 +115,21 @@ func _ready():
 	
 	$MultiMeshInstance3D.material_override.set_shader_parameter("sh_data", sh_tex)
 
-	var focal = get_viewport().size / (2 * tan(deg_to_rad($Camera.fov)/2))
-	var tan_half_fov = 0.5 * get_viewport().size / focal
+	var tan_fovy = tan(deg_to_rad($Camera.fov) * 0.5)
+	var tan_fovx = tan_fovy * get_viewport().size.x / get_viewport().size.y
+	var focal_y = get_viewport().size.y / (2 * tan_fovy)
+	var focal_x = get_viewport().size.x / (2 * tan_fovx)
 	
-	$MultiMeshInstance3D.material_override.set_shader_parameter("tan_fovx", tan_half_fov.x)
-	$MultiMeshInstance3D.material_override.set_shader_parameter("tan_fovy", tan_half_fov.y)
-	$MultiMeshInstance3D.material_override.set_shader_parameter("focal_x", focal.x)
-	$MultiMeshInstance3D.material_override.set_shader_parameter("focal_y", focal.y)
+	print(get_viewport().size)
+	print(tan_fovy)
+	print(tan_fovx)
+	print(focal_y)
+	print(focal_x)
+	
+	$MultiMeshInstance3D.material_override.set_shader_parameter("tan_fovx", tan_fovx)
+	$MultiMeshInstance3D.material_override.set_shader_parameter("tan_fovy", tan_fovy)
+	$MultiMeshInstance3D.material_override.set_shader_parameter("focal_x", focal_x)
+	$MultiMeshInstance3D.material_override.set_shader_parameter("focal_y", focal_y)
 	
 	$MultiMeshInstance3D.multimesh.instance_count = num_vertex
 	$MultiMeshInstance3D.multimesh.visible_instance_count = num_vertex
