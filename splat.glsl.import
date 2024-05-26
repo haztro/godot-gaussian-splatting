@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://gvra07c3h5yp"
+path="res://.godot/imported/splat.glsl-b254407682d09d89edead6d00519a379.res"
+
+[deps]
+
+source_file="res://splat.glsl"
+dest_files=["res://.godot/imported/splat.glsl-b254407682d09d89edead6d00519a379.res"]
+
+[params]
+

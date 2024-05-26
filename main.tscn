@@ -1,26 +1,7 @@
-[gd_scene load_steps=7 format=3 uid="uid://c27tc42js165g"]
+[gd_scene load_steps=3 format=3 uid="uid://c27tc42js165g"]
 
 [ext_resource type="Script" path="res://main.gd" id="1_j5eux"]
 [ext_resource type="Script" path="res://Camera.gd" id="2_ppc5i"]
-[ext_resource type="Shader" path="res://splat.gdshader" id="3_rgwox"]
-
-[sub_resource type="ShaderMaterial" id="ShaderMaterial_fjkma"]
-render_priority = 0
-shader = ExtResource("3_rgwox")
-shader_parameter/tan_fovx = 0.0
-shader_parameter/tan_fovy = 0.0
-shader_parameter/focal_x = 0.0
-shader_parameter/focal_y = 0.0
-shader_parameter/modifier = 1.0
-shader_parameter/transparent_thresh = 0.4
-shader_parameter/sh_degree = null
-shader_parameter/tex_width = 0
-
-[sub_resource type="QuadMesh" id="QuadMesh_68ibq"]
-
-[sub_resource type="MultiMesh" id="MultiMesh_hso7y"]
-transform_format = 1
-mesh = SubResource("QuadMesh_68ibq")
 
 [node name="main" type="Node3D"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 4.56234)
@@ -29,13 +10,10 @@ script = ExtResource("1_j5eux")
 [node name="PLYLoader" type="PLYLoader" parent="."]
 
 [node name="Camera" type="Camera3D" parent="."]
-transform = Transform3D(-1, 8.74228e-08, 0, -8.74228e-08, -1, 0, 0, 0, 1, 0, 0, 0)
 current = true
-fov = 37.8493
+fov = 37.8
 script = ExtResource("2_ppc5i")
 
-[node name="MultiMeshInstance3D" type="MultiMeshInstance3D" parent="."]
-material_override = SubResource("ShaderMaterial_fjkma")
-cast_shadow = 0
-gi_mode = 0
-multimesh = SubResource("MultiMesh_hso7y")
+[node name="TextureRect" type="TextureRect" parent="."]
+offset_right = 40.0
+offset_bottom = 40.0
