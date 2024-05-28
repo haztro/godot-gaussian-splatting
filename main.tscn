@@ -7,8 +7,6 @@
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 4.56234)
 script = ExtResource("1_j5eux")
 
-[node name="PLYLoader" type="PLYLoader" parent="."]
-
 [node name="Camera" type="Camera3D" parent="."]
 current = true
 fov = 37.8
