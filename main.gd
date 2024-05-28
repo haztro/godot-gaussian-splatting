@@ -2,7 +2,7 @@ extends Node3D
 
 @onready var camera = get_node("Camera")
 @onready var screen_texture = get_node("TextureRect")
-@export var splat_filename: String = "point_cloud.ply"
+@export var splat_filename: String = "point_cloud3.ply"
 
 var rd = RenderingServer.create_local_rendering_device()
 var pipeline: RID
@@ -264,10 +264,10 @@ func _ready():
 	shader = rd.shader_create_from_spirv(shader_spirv)
 
 	var points := PackedFloat32Array([
-		0,0,0,
-		0,1,0,
+		-1,-1,0,
+		1,-1,0,
+		-1,1,0,
 		1,1,0,
-		1,0,0,
 	])
 	var points_bytes := points.to_byte_array()
 	
@@ -387,7 +387,7 @@ func _ready():
 		shader,
 		framebuffer_format,
 		vertex_format,
-		RenderingDevice.RENDER_PRIMITIVE_TRIANGLES,
+		RenderingDevice.RENDER_PRIMITIVE_TRIANGLE_STRIPS,
 		RDPipelineRasterizationState.new(),
 		RDPipelineMultisampleState.new(),
 		RDPipelineDepthStencilState.new(),
@@ -413,7 +413,7 @@ func _on_viewport_size_changed():
 		shader,
 		framebuf_format,
 		vertex_format,
-		RenderingDevice.RENDER_PRIMITIVE_TRIANGLES,
+		RenderingDevice.RENDER_PRIMITIVE_TRIANGLE_STRIPS,
 		RDPipelineRasterizationState.new(),
 		RDPipelineMultisampleState.new(),
 		RDPipelineDepthStencilState.new(),
@@ -474,8 +474,8 @@ func update():
 	]).to_byte_array()
 	rd.buffer_update(params_buffer, 0, params.size(), params)
 	
-	bitonic_sort()
-	#sort_splats_by_depth()
+	#bitonic_sort()
+	_sort_splats_by_depth()
 	
 
 func render():
@@ -483,8 +483,8 @@ func render():
 	rd.draw_list_bind_render_pipeline(draw_list, pipeline)
 	rd.draw_list_bind_uniform_set(draw_list, uniform_set, 0)
 	rd.draw_list_bind_vertex_array(draw_list, vertex_array)
-	rd.draw_list_bind_index_array(draw_list,index_array)
-	rd.draw_list_draw(draw_list, true, num_vertex)
+	#rd.draw_list_bind_index_array(draw_list,index_array)
+	rd.draw_list_draw(draw_list, false, num_vertex)
 	rd.draw_list_end(RenderingDevice.BARRIER_MASK_VERTEX)
 	
 	var byte_data := rd.texture_get_data(output_tex,0)
@@ -505,7 +505,7 @@ func _input(event):
 		
 
 
-func sort_splats_by_depth():
+func _sort_splats_by_depth():
 	var direction = camera.global_transform.basis.z.normalized()
 	var cos_angle = last_direction.dot(direction)
 	var angle = acos(clamp(cos_angle, -1, 1))

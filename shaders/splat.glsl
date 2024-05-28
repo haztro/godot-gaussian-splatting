@@ -238,7 +238,7 @@ void main()
     vColor = computeColorFromSH(3, pos, vec3(viewMatrix[3].xyz), sh);  
     vConicAndOpacity = vec4(conic, sigmoid(opacity));
 
-    vec2 screen_pos = point_image + radius_px * (2.0 * vertex_position.xy - 1.0);
+    vec2 screen_pos = point_image + radius_px * vertex_position.xy;
     vUV = point_image - screen_pos;
     gl_Position = vec4(screen_pos / params.viewport_size * 2 - 1, 0, 1);
 }
