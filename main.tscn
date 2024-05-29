@@ -1,11 +1,15 @@
-[gd_scene load_steps=3 format=3 uid="uid://c27tc42js165g"]
+[gd_scene load_steps=5 format=3 uid="uid://c27tc42js165g"]
 
 [ext_resource type="Script" path="res://main.gd" id="1_j5eux"]
+[ext_resource type="Resource" uid="uid://brxq4dkwnfyke" path="res://point_cloud.ply" id="2_7olva"]
 [ext_resource type="Script" path="res://Camera.gd" id="2_ppc5i"]
+
+[sub_resource type="PrismMesh" id="PrismMesh_r3wk8"]
 
 [node name="main" type="Node3D"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 4.56234)
 script = ExtResource("1_j5eux")
+splatResource = ExtResource("2_7olva")
 
 [node name="Camera" type="Camera3D" parent="."]
 current = true
@@ -15,3 +19,7 @@ script = ExtResource("2_ppc5i")
 [node name="TextureRect" type="TextureRect" parent="."]
 offset_right = 40.0
 offset_bottom = 40.0
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -4.60119)
+mesh = SubResource("PrismMesh_r3wk8")
