@@ -1,3 +1,4 @@
 # Godot 4+ specific ignores
 .godot/*
 *.ply
+point_cloud.ply.import
