@@ -2,7 +2,7 @@ extends Node3D
 
 @onready var camera = get_node("Camera")
 @onready var screen_texture = get_node("TextureRect")
-@export var splat_filename: String = "point_cloud3.ply"
+@export var splat_filename: String = "point_cloud2.ply"
 
 var rd = RenderingServer.create_local_rendering_device()
 var pipeline: RID
@@ -99,6 +99,8 @@ func _load_ply_file():
 		if line.begins_with("end_header"):
 			break
 		line = file.get_line()
+		
+	print("num splats: ", num_vertex)
 	
 	var coeffs = []
 
@@ -214,8 +216,6 @@ func _ready():
 
 	print("unpacking .ply file data...")
 	_load_ply_file()
-	print("num splats: ", num_vertex)
-	
 	
 	# Arrays need to be powers of 2 in length for bitonic sort
 	_pad_to_next_power_2(depth_index, 0)
@@ -318,6 +318,7 @@ func _ready():
 		focal_x,
 		focal_y,
 		modifier,
+		sh_degree,
 	]).to_byte_array()
 	params_buffer = rd.storage_buffer_create(params.size(), params)
 	var params_uniform := RDUniform.new()
@@ -471,6 +472,7 @@ func update():
 		focal_x,
 		focal_y,
 		modifier,
+		sh_degree,
 	]).to_byte_array()
 	rd.buffer_update(params_buffer, 0, params.size(), params)
 	
