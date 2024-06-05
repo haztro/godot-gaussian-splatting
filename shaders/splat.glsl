@@ -238,8 +238,10 @@ void main()
     vec2 point_image = vec2(ndc2Pix(ndc.x, params.viewport_size.x), ndc2Pix(ndc.y, params.viewport_size.y));
 
     vec3 sh[16];
+    uint cidx = 0;
     for (int i = 0; i < 48; i += 3) {
-        sh[i] = vec3(coeffs[idx * 48 + i], coeffs[idx * 48 + i + 1], coeffs[idx * 48 + i + 2]);
+        sh[cidx] = vec3(coeffs[idx * 48 + i], coeffs[idx * 48 + i + 1], coeffs[idx * 48 + i + 2]);
+        cidx++;
     }
 
     vColor = computeColorFromSH(int(params.sh_degree), pos, vec3(viewMatrix[3].xyz), sh);  
