@@ -5,12 +5,12 @@
 
 layout(local_size_x = 1024, local_size_y = 1, local_size_z = 1) in;
 
-layout(set = 0, binding = 7, std430) buffer DepthBuffer {
+layout(set = 0, binding = 3, std430) buffer DepthBuffer {
     uint depth[];
 };
 
 
-layout(set = 0, binding = 8, std430) buffer DepthIndexBuffer {
+layout(set = 0, binding = 4, std430) buffer DepthIndexBuffer {
     uint depth_index[];
 };
 

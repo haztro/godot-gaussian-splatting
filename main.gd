@@ -2,7 +2,7 @@ extends Node3D
 
 @onready var camera = get_node("Camera")
 @onready var screen_texture = get_node("TextureRect")
-@export var splat_filename: String = "point_cloud2.ply"
+@export var splat_filename: String = "point_cloud.ply"
 
 var rd = RenderingServer.create_local_rendering_device()
 var pipeline: RID
@@ -18,12 +18,6 @@ var clear_color_values := PackedColorArray([Color(0,0,0,0)])
 
 var depths = PackedFloat32Array()
 var depth_index = PackedInt32Array()
-
-var positions = PackedFloat32Array()
-var opacities = PackedFloat32Array()
-var scales = PackedFloat32Array()
-var rotations = PackedFloat32Array()
-var sh_coeffs = PackedFloat32Array()
 
 var num_coeffs = 45
 var num_coeffs_per_color = num_coeffs / 3
@@ -42,6 +36,8 @@ var params_buffer: RID
 var modifier: float = 1.0
 var last_direction := Vector3.ZERO
 
+var vertices: PackedFloat32Array
+
 
 func _matrix_to_bytes(t : Transform3D):
 	var basis : Basis = t.basis
@@ -55,17 +51,12 @@ func _matrix_to_bytes(t : Transform3D):
 	return bytes
 
 
-func _pad_to_next_power_2(array, val):
-	var original_length = array.size()
+func _get_power_of_2(num):
 	var next_power_of_2 = 1
-	while next_power_of_2 < original_length:
+	while next_power_of_2 < num:
 		next_power_of_2 <<= 1
-
-	var needed_padding = next_power_of_2 - original_length
-	for i in range(needed_padding):
-		array.append(val)
-
-	return array
+	next_power_of_2 >>= 1
+	return next_power_of_2
 
 
 func _initialise_screen_texture():
@@ -81,7 +72,6 @@ func _set_screen_texture_data(data: PackedByteArray):
 	screen_texture.texture.update(image)
 
 
-# terrible loading
 func _load_ply_file():
 	var file = FileAccess.open(splat_filename, FileAccess.READ)
 
@@ -89,103 +79,25 @@ func _load_ply_file():
 		print("Failed to open file: " + splat_filename)
 		return
 
-	num_vertex = 0
-	
-	# Read header
+	var num_properties = 0
 	var line = file.get_line()
 	while not file.eof_reached():
 		if line.begins_with("element vertex"):
 			num_vertex = int(line.split(" ")[2])
-		if line.begins_with("end_header"):
+		elif line.begins_with("property"):
+			num_properties += 1
+		elif line.begins_with("end_header"):
 			break
 		line = file.get_line()
-		
+	
 	print("num splats: ", num_vertex)
 	
-	var coeffs = []
-
-	for i in range(num_vertex):
-		var vertex = {
-			"x": file.get_float(),
-			"y": file.get_float(),
-			"z": file.get_float(),
-			"nx": file.get_float(),
-			"ny": file.get_float(),
-			"nz": file.get_float(),
-			"f_dc_0": file.get_float(),
-			"f_dc_1": file.get_float(),
-			"f_dc_2": file.get_float(),
-			"f_rest_0": file.get_float(),
-			"f_rest_1": file.get_float(),
-			"f_rest_2": file.get_float(),
-			"f_rest_3": file.get_float(),
-			"f_rest_4": file.get_float(),
-			"f_rest_5": file.get_float(),
-			"f_rest_6": file.get_float(),
-			"f_rest_7": file.get_float(),
-			"f_rest_8": file.get_float(),
-			"f_rest_9": file.get_float(),
-			"f_rest_10": file.get_float(),
-			"f_rest_11": file.get_float(),
-			"f_rest_12": file.get_float(),
-			"f_rest_13": file.get_float(),
-			"f_rest_14": file.get_float(),
-			"f_rest_15": file.get_float(),
-			"f_rest_16": file.get_float(),
-			"f_rest_17": file.get_float(),
-			"f_rest_18": file.get_float(),
-			"f_rest_19": file.get_float(),
-			"f_rest_20": file.get_float(),
-			"f_rest_21": file.get_float(),
-			"f_rest_22": file.get_float(),
-			"f_rest_23": file.get_float(),
-			"f_rest_24": file.get_float(),
-			"f_rest_25": file.get_float(),
-			"f_rest_26": file.get_float(),
-			"f_rest_27": file.get_float(),
-			"f_rest_28": file.get_float(),
-			"f_rest_29": file.get_float(),
-			"f_rest_30": file.get_float(),
-			"f_rest_31": file.get_float(),
-			"f_rest_32": file.get_float(),
-			"f_rest_33": file.get_float(),
-			"f_rest_34": file.get_float(),
-			"f_rest_35": file.get_float(),
-			"f_rest_36": file.get_float(),
-			"f_rest_37": file.get_float(),
-			"f_rest_38": file.get_float(),
-			"f_rest_39": file.get_float(),
-			"f_rest_40": file.get_float(),
-			"f_rest_41": file.get_float(),
-			"f_rest_42": file.get_float(),
-			"f_rest_43": file.get_float(),
-			"f_rest_44": file.get_float(),
-			"opacity": file.get_float(),
-			"scale_0": file.get_float(),
-			"scale_1": file.get_float(),
-			"scale_2": file.get_float(),
-			"rot_0": file.get_float(),
-			"rot_1": file.get_float(),
-			"rot_2": file.get_float(),
-			"rot_3": file.get_float()
-		}
-		
-		positions.append_array([vertex["x"], vertex["y"], vertex["z"], 0])
-		opacities.append(vertex["opacity"])
-		scales.append_array([vertex["scale_0"], vertex["scale_1"], vertex["scale_2"], 0])
-		rotations.append_array([vertex["rot_0"], vertex["rot_1"], vertex["rot_2"], vertex["rot_3"]])
-		depth_index.append(i)
-		depths.append(0)
-		
-		var coeff = [vertex["f_dc_0"], vertex["f_dc_1"], vertex["f_dc_2"]]
-		for j in range(num_coeffs_per_color):
-			coeff.append_array([
-				vertex["f_rest_%d" % (0 * num_coeffs_per_color + j)],
-				vertex["f_rest_%d" % (1 * num_coeffs_per_color + j)],
-				vertex["f_rest_%d" % (2 * num_coeffs_per_color + j)]
-			])
-		sh_coeffs.append_array(coeff)
-		
+	# this is so bitonic sort works - need to get radix sort working
+	num_vertex = _get_power_of_2(num_vertex)
+	print("num properties: ", num_properties)
+	print("bitonic splats: ", num_vertex)
+	
+	vertices = file.get_buffer(num_vertex * num_properties * 4).to_float32_array()
 	file.close()
 	
 
@@ -215,21 +127,17 @@ func _ready():
 	get_viewport().size_changed.connect(_on_viewport_size_changed)
 
 	print("unpacking .ply file data...")
-	_load_ply_file()
+	_load_ply_file()	
 	
-	# Arrays need to be powers of 2 in length for bitonic sort
-	_pad_to_next_power_2(depth_index, 0)
-	_pad_to_next_power_2(depths, INF)
+	for i in range(num_vertex):
+		depth_index.append(i)
+		depths.append(INF)
 	
 	print("configuring shaders...")
-	var depth_buffer = rd.storage_buffer_create(depths.size() * 4, depths.to_byte_array())
+	var vertices_buffer = rd.storage_buffer_create(vertices.size() * 4, vertices.to_byte_array())
+	var depth_buffer = rd.storage_buffer_create(depth_index.size() * 4, depths.to_byte_array())
 	var depth_index_buffer = rd.storage_buffer_create(depth_index.size() * 4, depth_index.to_byte_array())
-	var position_buffer = rd.storage_buffer_create(positions.size() * 4, positions.to_byte_array())
-	var opacity_buffer = rd.storage_buffer_create(opacities.size() * 4, opacities.to_byte_array())
-	var scale_buffer = rd.storage_buffer_create(scales.size() * 4, scales.to_byte_array())
-	var rotation_buffer = rd.storage_buffer_create(rotations.size() * 4, rotations.to_byte_array())
-	var sh_coeff_buffer = rd.storage_buffer_create(sh_coeffs.size() * 4, sh_coeffs.to_byte_array())
-	
+		
 	# Configure bitonic sort shaders
 	var sort_shader_file = load("res://shaders/sort.glsl")
 	var sort_shader_spirv = sort_shader_file.get_spirv()
@@ -239,14 +147,19 @@ func _ready():
 	var sort2_shader_spirv = sort2_shader_file.get_spirv()
 	var sort2_shader := rd.shader_create_from_spirv(sort2_shader_spirv)
 	
+	var vertices_uniform = RDUniform.new()
+	vertices_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
+	vertices_uniform.binding = 2
+	vertices_uniform.add_id(vertices_buffer)
+	
 	var depth_uniform = RDUniform.new()
 	depth_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	depth_uniform.binding = 7
+	depth_uniform.binding = 3
 	depth_uniform.add_id(depth_buffer)
 	
 	var depth_index_uniform = RDUniform.new()
 	depth_index_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	depth_index_uniform.binding = 8
+	depth_index_uniform.binding = 4
 	depth_index_uniform.add_id(depth_index_buffer)
 	
 	var sort_bindings = [
@@ -326,32 +239,6 @@ func _ready():
 	params_uniform.binding = 1
 	params_uniform.add_id(params_buffer)
 	
-	# Vertex uniform storage buffers
-	var position_uniform = RDUniform.new()
-	position_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	position_uniform.binding = 2
-	position_uniform.add_id(position_buffer)
-	
-	var coeffs_uniform = RDUniform.new()
-	coeffs_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	coeffs_uniform.binding = 3
-	coeffs_uniform.add_id(sh_coeff_buffer)
-	
-	var scales_uniform = RDUniform.new()
-	scales_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	scales_uniform.binding = 4
-	scales_uniform.add_id(scale_buffer)
-	
-	var opacity_uniform = RDUniform.new()
-	opacity_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	opacity_uniform.binding = 5
-	opacity_uniform.add_id(opacity_buffer)
-	
-	var rotation_uniform = RDUniform.new()
-	rotation_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	rotation_uniform.binding = 6
-	rotation_uniform.add_id(rotation_buffer)
-	
 	# Configure blend mode
 	var blend_attachment = RDPipelineColorBlendStateAttachment.new()	
 	blend_attachment.enable_blend = true
@@ -374,13 +261,9 @@ func _ready():
 	var bindings = [
 		camera_matrices_uniform,
 		params_uniform,
-		position_uniform,
-		coeffs_uniform,
-		scales_uniform,
-		opacity_uniform,
-		rotation_uniform,
 		depth_uniform,
 		depth_index_uniform,
+		vertices_uniform,
 	]
 	uniform_set = rd.uniform_set_create(bindings, shader, 0)
 	
@@ -476,7 +359,6 @@ func update():
 	]).to_byte_array()
 	rd.buffer_update(params_buffer, 0, params.size(), params)
 	
-	#bitonic_sort()
 	_sort_splats_by_depth()
 	
 
@@ -485,7 +367,6 @@ func render():
 	rd.draw_list_bind_render_pipeline(draw_list, pipeline)
 	rd.draw_list_bind_uniform_set(draw_list, uniform_set, 0)
 	rd.draw_list_bind_vertex_array(draw_list, vertex_array)
-	#rd.draw_list_bind_index_array(draw_list,index_array)
 	rd.draw_list_draw(draw_list, false, num_vertex)
 	rd.draw_list_end(RenderingDevice.BARRIER_MASK_VERTEX)
 	
@@ -505,7 +386,6 @@ func _input(event):
 		if event.button_index == MOUSE_BUTTON_WHEEL_DOWN and event.pressed:
 			modifier -= 0.05
 		
-
 
 func _sort_splats_by_depth():
 	var direction = camera.global_transform.basis.z.normalized()

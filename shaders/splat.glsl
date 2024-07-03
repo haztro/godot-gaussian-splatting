@@ -23,31 +23,15 @@ layout(set = 0, binding = 1, std430) restrict buffer Params {
 params;
 
 
-layout(set = 0, binding = 2, std430) restrict buffer PositionBuffer {
-    vec4 positions[];
+layout(set = 0, binding = 2, std430) restrict buffer VerticesBuffer {
+    float vertices[];
 };
 
-layout(set = 0, binding = 3, std430) restrict buffer CoeffsBuffer {
-    float coeffs[];
-};
-
-layout(set = 0, binding = 4, std430) restrict buffer ScalesBuffer {
-    vec4 scale[];
-};
-
-layout(set = 0, binding = 5, std430) restrict buffer OpacityBuffer {
-    float opacity[];
-};
-
-layout(set = 0, binding = 6, std430) restrict buffer RotationBuffer {
-    vec4 rotation[];
-};
-
-layout(set = 0, binding = 7, std430) buffer DepthBuffer {
+layout(set = 0, binding = 3, std430) buffer DepthBuffer {
     float depth[];
 };
 
-layout(set = 0, binding = 8, std430) buffer DepthIndexBuffer {
+layout(set = 0, binding = 4, std430) buffer DepthIndexBuffer {
     uint depth_index[];
 };
 
@@ -195,19 +179,21 @@ float ndc2Pix(float v, float S) {
     return ((v + 1.) * S - 1.) * .5;
 }
 
+const int NUM_PROPERTIES = 62;
+
 void main()
 {
-    int idx = int(depth_index[gl_InstanceIndex]);
+    int idx = int(depth_index[gl_InstanceIndex]) * NUM_PROPERTIES;
     float aspect = params.viewport_size.x / params.viewport_size.y;
     mat4 projMatrix = getProjectionMatrix(aspect, camera_data.CameraNearPlane, camera_data.CameraFarPlane);
     mat4 viewMatrix = camera_data.CameraToWorld;
 
     // Calculate distance to camera
-    vec3 pos_ = positions[gl_InstanceIndex].xyz;
+    vec3 pos_ = vec3(vertices[gl_InstanceIndex * NUM_PROPERTIES], vertices[gl_InstanceIndex * NUM_PROPERTIES + 1], vertices[gl_InstanceIndex * NUM_PROPERTIES + 2]);
     vec3 view = (viewMatrix * vec4(pos_, 1.0)).xyz;
     depth[gl_InstanceIndex] = view.z;
 
-    vec3 pos = positions[idx].xyz;
+    vec3 pos = vec3(vertices[idx], vertices[idx + 1], vertices[idx + 2]);
     vec4 clipSpace = projMatrix * viewMatrix * vec4(pos, 1.0);
     float clip = 1.2 * clipSpace.w;
     if (clipSpace.z < -clip || clipSpace.z > clip || clipSpace.x < -clip || clipSpace.x > clip || clipSpace.y < -clip || clipSpace.y > clip) {
@@ -215,9 +201,9 @@ void main()
         return;
     }
     
-    vec3 scale = scale[idx].xyz;
-    vec4 rot = rotation[idx];
-    float opacity = opacity[idx];
+    vec3 scale = vec3(vertices[idx + 55], vertices[idx + 55 + 1], vertices[idx + 55 + 2]);
+    vec4 rot = vec4(vertices[idx + 58], vertices[idx + 58 + 1], vertices[idx + 58 + 2], vertices[idx + 58 + 3]);
+    float opacity = vertices[idx + 54];
 
     vec4 ndc = clipSpace / clipSpace.w;
     ndc.x *= -1;    // Not sure why i need this tbh
@@ -240,7 +226,7 @@ void main()
     vec3 sh[16];
     uint cidx = 0;
     for (int i = 0; i < 48; i += 3) {
-        sh[cidx] = vec3(coeffs[idx * 48 + i], coeffs[idx * 48 + i + 1], coeffs[idx * 48 + i + 2]);
+        sh[cidx] = vec3(vertices[idx + 6 + i], vertices[idx + 6 + i + 1], vertices[idx + 6 + i + 2]);
         cidx++;
     }
 
