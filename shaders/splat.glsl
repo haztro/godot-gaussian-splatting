@@ -3,7 +3,7 @@
 
 layout(location = 0) in vec3 vertex_position;
 
-layout(set = 0, binding = 0, std430) restrict buffer CameraData {
+layout(set = 0, binding = 3, std430) restrict buffer CameraData {
 	mat4 CameraToWorld;
 	float CameraFarPlane;
 	float CameraNearPlane;
@@ -27,13 +27,14 @@ layout(set = 0, binding = 2, std430) restrict buffer VerticesBuffer {
     float vertices[];
 };
 
-layout(set = 0, binding = 3, std430) buffer DepthBuffer {
-    float depth[];
+layout(set = 0, binding = 0, std430) buffer DepthBuffer {
+    uvec2 depth[];
 };
 
-layout(set = 0, binding = 4, std430) buffer DepthIndexBuffer {
-    uint depth_index[];
+layout(set = 0, binding = 5, std430) buffer Cov3dBuffer {
+    float precomp_cov3d[];
 };
+
 
 
 // Helpful resources:
@@ -112,8 +113,14 @@ mat3 computeCov3D(vec3 scale, vec4 rot) {
 	return Sigma;
 }
 
-vec3 computeCov2D(vec3 position, vec3 log_scale, vec4 rot, mat4 viewMatrix) {
-    mat3 cov3D = computeCov3D(log_scale, rot);
+
+
+vec3 computeCov2D(vec3 position, vec3 log_scale, vec4 rot, mat4 viewMatrix, int idx) {
+    mat3 cov3D = mat3(
+		vec3(precomp_cov3d[idx + 0], precomp_cov3d[idx + 1], precomp_cov3d[idx + 2]),
+		vec3(precomp_cov3d[idx + 3], precomp_cov3d[idx + 4], precomp_cov3d[idx + 5]),
+		vec3(precomp_cov3d[idx + 6], precomp_cov3d[idx + 7], precomp_cov3d[idx + 8])
+	);
 
     vec4 t = viewMatrix * vec4(position, 1.0);
 
@@ -183,19 +190,19 @@ const int NUM_PROPERTIES = 62;
 
 void main()
 {
-    int idx = int(depth_index[gl_InstanceIndex]) * NUM_PROPERTIES;
+    int idx = int(depth[gl_InstanceIndex][1]) * NUM_PROPERTIES;
     float aspect = params.viewport_size.x / params.viewport_size.y;
     mat4 projMatrix = getProjectionMatrix(aspect, camera_data.CameraNearPlane, camera_data.CameraFarPlane);
     mat4 viewMatrix = camera_data.CameraToWorld;
 
-    // Calculate distance to camera
-    vec3 pos_ = vec3(vertices[gl_InstanceIndex * NUM_PROPERTIES], vertices[gl_InstanceIndex * NUM_PROPERTIES + 1], vertices[gl_InstanceIndex * NUM_PROPERTIES + 2]);
-    vec3 view = (viewMatrix * vec4(pos_, 1.0)).xyz;
-    depth[gl_InstanceIndex] = view.z;
-
+    // Projection
     vec3 pos = vec3(vertices[idx], vertices[idx + 1], vertices[idx + 2]);
     vec4 clipSpace = projMatrix * viewMatrix * vec4(pos, 1.0);
-    float clip = 1.2 * clipSpace.w;
+    float clip = 1.1 * clipSpace.w;
+    float dist = clipSpace.z / clipSpace.w;
+    depth[gl_InstanceIndex][0] = uint((1 - dist * 0.5 + 0.5) * 0xFFFF);
+
+
     if (clipSpace.z < -clip || clipSpace.z > clip || clipSpace.x < -clip || clipSpace.x > clip || clipSpace.y < -clip || clipSpace.y > clip) {
         gl_Position = vec4(0, 0, 2, 1);
         return;
@@ -208,7 +215,7 @@ void main()
     vec4 ndc = clipSpace / clipSpace.w;
     ndc.x *= -1;    // Not sure why i need this tbh
 
-    vec3 cov2d = computeCov2D(pos, scale, rot, viewMatrix);
+    vec3 cov2d = computeCov2D(pos, scale, rot, viewMatrix, int(depth[gl_InstanceIndex][1]) * 9);
 	float det = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
     if (det == 0.) {
         gl_Position = vec4(0, 0, 2, 1);
@@ -225,15 +232,16 @@ void main()
 
     vec3 sh[16];
     uint cidx = 0;
+    uint index = idx + 6;
     for (int i = 0; i < 48; i += 3) {
-        sh[cidx] = vec3(vertices[idx + 6 + i], vertices[idx + 6 + i + 1], vertices[idx + 6 + i + 2]);
+        sh[cidx] = vec3(vertices[index + i], vertices[index + i + 1], vertices[index + i + 2]);
         cidx++;
     }
 
-    vColor = computeColorFromSH(int(params.sh_degree), pos, vec3(viewMatrix[3].xyz), sh);  
+    vColor = computeColorFromSH(0, pos, vec3(viewMatrix[3].xyz), sh);  
     vConicAndOpacity = vec4(conic, sigmoid(opacity));
 
-    vec2 screen_pos = point_image + radius_px * vertex_position.xy;
+    vec2 screen_pos = point_image + radius_px * (vertex_position.xy);
     vUV = point_image - screen_pos;
     gl_Position = vec4(screen_pos / params.viewport_size * 2 - 1, 0, 1);
 }

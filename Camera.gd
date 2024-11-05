@@ -9,13 +9,13 @@ extends Camera3D
 
 func _input(event):
 	if event is InputEventMouseMotion:
-		if Input.is_action_pressed("right_mouse_btn"):
+		if Input.is_action_pressed("left_mouse_btn"):
 			rotate_y(deg_to_rad(event.relative.x * mouse_sensitivity))
 			rotate_object_local(Vector3(1.0, 0.0, 0.0), deg_to_rad(event.relative.y * mouse_sensitivity))
 	
 
 func _process(_delta):
-	if Input.is_action_pressed("right_mouse_btn"):
+	if Input.is_action_pressed("left_mouse_btn"):
 		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	else:
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
@@ -26,9 +26,9 @@ func _process(_delta):
 		rotate_object_local(Vector3(0.0, 0.0, 1.0), deg_to_rad(roll_speed))
 		
 		
-	_move()
+	_move(_delta)
 
-func _move():
+func _move(_delta):
 	var input_vector := Vector3.ZERO
 	input_vector.x = Input.get_action_strength("move_left") - Input.get_action_strength("move_right")
 	input_vector.z = Input.get_action_strength("move_backward") - Input.get_action_strength("move_forward")
@@ -37,11 +37,11 @@ func _move():
 		input_vector = input_vector.normalized()
 	
 	var displacement := Vector3.ZERO
-	displacement = global_transform.basis.z * move_speed * input_vector.z
+	displacement = global_transform.basis.z * move_speed * input_vector.z# * _delta
 	global_transform.origin += displacement
 	
-	displacement = global_transform.basis.x * move_speed * input_vector.x
+	displacement = global_transform.basis.x * move_speed * input_vector.x# * _delta
 	global_transform.origin += displacement
 	
-	displacement = global_transform.basis.y * move_speed * input_vector.y
+	displacement = global_transform.basis.y * move_speed * input_vector.y# * _delta
 	global_transform.origin -= displacement

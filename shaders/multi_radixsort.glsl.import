@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://b7vpo4p23buwm"
+path="res://.godot/imported/multi_radixsort.glsl-a9677af5cb5057318f6aebb17b0e7b25.res"
+
+[deps]
+
+source_file="res://shaders/multi_radixsort.glsl"
+dest_files=["res://.godot/imported/multi_radixsort.glsl-a9677af5cb5057318f6aebb17b0e7b25.res"]
+
+[params]
+

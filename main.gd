@@ -2,7 +2,7 @@ extends Node3D
 
 @onready var camera = get_node("Camera")
 @onready var screen_texture = get_node("TextureRect")
-@export var splat_filename: String = "point_cloud.ply"
+@export var splat_filename: String = "train.ply"
 
 var rd = RenderingServer.create_local_rendering_device()
 var pipeline: RID
@@ -16,17 +16,23 @@ var index_array: RID
 var uniform_set: RID
 var clear_color_values := PackedColorArray([Color(0,0,0,0)])
 
-var depths = PackedFloat32Array()
-var depth_index = PackedInt32Array()
-
 var num_coeffs = 45
 var num_coeffs_per_color = num_coeffs / 3
 var sh_degree = sqrt(num_coeffs_per_color + 1) - 1	
 
-var sort_uniform_set: RID
 var sort_pipeline: RID
-var sort2_uniform_set: RID
-var sort2_pipeline: RID
+var histogram_pipeline: RID
+var depth_in_buffer: RID
+var depth_out_buffer: RID
+var histogram_buffer: RID
+var depth_uniform
+var depth_out_uniform
+var histogram_uniform_set0
+var histogram_uniform_set1
+var radixsort_hist_shader: RID
+var radixsort_shader: RID
+var globalInvocationSize: int
+
 
 var num_vertex: int
 var output_tex: RID
@@ -37,6 +43,9 @@ var modifier: float = 1.0
 var last_direction := Vector3.ZERO
 
 var vertices: PackedFloat32Array
+
+const NUM_BLOCKS_PER_WORKGROUP = 2048
+var NUM_WORKGROUPS
 
 
 func _matrix_to_bytes(t : Transform3D):
@@ -49,14 +58,6 @@ func _matrix_to_bytes(t : Transform3D):
 		origin.x, origin.y, origin.z, 1.0
 	]).to_byte_array()
 	return bytes
-
-
-func _get_power_of_2(num):
-	var next_power_of_2 = 1
-	while next_power_of_2 < num:
-		next_power_of_2 <<= 1
-	next_power_of_2 >>= 1
-	return next_power_of_2
 
 
 func _initialise_screen_texture():
@@ -91,11 +92,7 @@ func _load_ply_file():
 		line = file.get_line()
 	
 	print("num splats: ", num_vertex)
-	
-	# this is so bitonic sort works - need to get radix sort working
-	num_vertex = _get_power_of_2(num_vertex)
 	print("num properties: ", num_properties)
-	print("bitonic splats: ", num_vertex)
 	
 	vertices = file.get_buffer(num_vertex * num_properties * 4).to_float32_array()
 	file.close()
@@ -129,47 +126,124 @@ func _ready():
 	print("unpacking .ply file data...")
 	_load_ply_file()	
 	
-	for i in range(num_vertex):
-		depth_index.append(i)
-		depths.append(INF)
-	
 	print("configuring shaders...")
 	var vertices_buffer = rd.storage_buffer_create(vertices.size() * 4, vertices.to_byte_array())
-	var depth_buffer = rd.storage_buffer_create(depth_index.size() * 4, depths.to_byte_array())
-	var depth_index_buffer = rd.storage_buffer_create(depth_index.size() * 4, depth_index.to_byte_array())
-		
-	# Configure bitonic sort shaders
-	var sort_shader_file = load("res://shaders/sort.glsl")
-	var sort_shader_spirv = sort_shader_file.get_spirv()
-	var sort_shader := rd.shader_create_from_spirv(sort_shader_spirv)
-	
-	var sort2_shader_file = load("res://shaders/sort2.glsl")
-	var sort2_shader_spirv = sort2_shader_file.get_spirv()
-	var sort2_shader := rd.shader_create_from_spirv(sort2_shader_spirv)
 	
 	var vertices_uniform = RDUniform.new()
 	vertices_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
 	vertices_uniform.binding = 2
 	vertices_uniform.add_id(vertices_buffer)
 	
-	var depth_uniform = RDUniform.new()
+	var cov3d_data = PackedFloat32Array()
+	cov3d_data.resize(num_vertex * 9)
+	
+	var depth_in_data = PackedInt32Array()
+	var cov3d_buffer = rd.storage_buffer_create(cov3d_data.size() * 4, cov3d_data.to_byte_array())
+	
+	#depth_in_data.resize(num_vertex * 2)
+	depth_in_buffer = rd.storage_buffer_create(num_vertex * 2 * 4, PackedByteArray(), RenderingDevice.STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT)
+	
+	var cov3d_uniform = RDUniform.new()
+	cov3d_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
+	cov3d_uniform.binding = 5
+	cov3d_uniform.add_id(cov3d_buffer)	
+	
+	depth_uniform = RDUniform.new()
 	depth_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	depth_uniform.binding = 3
-	depth_uniform.add_id(depth_buffer)
-	
-	var depth_index_uniform = RDUniform.new()
-	depth_index_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	depth_index_uniform.binding = 4
-	depth_index_uniform.add_id(depth_index_buffer)
-	
-	var sort_bindings = [
-		depth_uniform,
-		depth_index_uniform,
-	]
+	depth_uniform.binding = 0
+	depth_uniform.add_id(depth_in_buffer)
 		
-	sort_uniform_set = rd.uniform_set_create(sort_bindings, sort_shader, 0)
-	sort_pipeline = rd.compute_pipeline_create(sort_shader)
-	sort2_pipeline = rd.compute_pipeline_create(sort2_shader)	
+	var tan_fovy = tan(deg_to_rad($Camera.fov) * 0.5)
+	var tan_fovx = tan_fovy * get_viewport().size.x / get_viewport().size.y
+	var focal_y = get_viewport().size.y / (2 * tan_fovy)
+	var focal_x = get_viewport().size.x / (2 * tan_fovx)
+	
+	# Viewport size buffer
+	var params : PackedByteArray = PackedFloat32Array([
+		get_viewport().size.x,
+		get_viewport().size.y,
+		tan_fovx,
+		tan_fovy,
+		focal_x,
+		focal_y,
+		modifier,
+		sh_degree,
+	]).to_byte_array()
+	params_buffer = rd.storage_buffer_create(params.size(), params)
+	var params_uniform := RDUniform.new()
+	params_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
+	params_uniform.binding = 1
+	params_uniform.add_id(params_buffer)
+		
+		
+	# Configure precomp cov3d compute shader
+	var precomp_shader_file = load("res://shaders/precomp_cov3d.glsl")
+	var precomp_shader_spirv = precomp_shader_file.get_spirv()
+	var precomp_shader = rd.shader_create_from_spirv(precomp_shader_spirv)	
+		
+	var precomp_bindings = [
+		params_uniform,
+		vertices_uniform,
+		cov3d_uniform,
+		depth_uniform
+	]
+	var precomp_uniform_set = rd.uniform_set_create(precomp_bindings, precomp_shader, 0)
+	var precomp_pipeline := rd.compute_pipeline_create(precomp_shader)
+	var precomp_compute_list := rd.compute_list_begin()
+	rd.compute_list_bind_compute_pipeline(precomp_compute_list, precomp_pipeline)
+	rd.compute_list_bind_uniform_set(precomp_compute_list, precomp_uniform_set, 0)
+	rd.compute_list_dispatch(precomp_compute_list, num_vertex, 1, 1)
+	rd.compute_list_end()
+	rd.submit()
+	rd.sync()
+	
+	print("HERE")
+		
+	var radixsort_shader_file = load("res://shaders/multi_radixsort.glsl")
+	var radixsort_shader_spirv = radixsort_shader_file.get_spirv()
+	radixsort_shader = rd.shader_create_from_spirv(radixsort_shader_spirv)
+
+	var radixsort_hist_shader_file = load("res://shaders/multi_radixsort_histograms.glsl")
+	var radisxsort_hist_spirv = radixsort_hist_shader_file.get_spirv()
+	radixsort_hist_shader = rd.shader_create_from_spirv(radisxsort_hist_spirv)
+	
+	globalInvocationSize = num_vertex / NUM_BLOCKS_PER_WORKGROUP
+	var remainder = num_vertex % NUM_BLOCKS_PER_WORKGROUP
+	if remainder > 0:
+		globalInvocationSize += 1
+
+	var WORKGROUP_SIZE = 512
+	var RADIX_SORT_BINS = 256
+	NUM_WORKGROUPS = num_vertex / WORKGROUP_SIZE
+
+	
+	var depth_out_data = PackedInt32Array()
+	var hist_data = PackedInt32Array()
+		
+	depth_out_data.resize(num_vertex * 2)
+	hist_data.resize(RADIX_SORT_BINS * NUM_WORKGROUPS)
+	
+
+	depth_out_buffer = rd.storage_buffer_create(depth_out_data.size() * 4, depth_out_data.to_byte_array(), RenderingDevice.STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT)
+	histogram_buffer = rd.storage_buffer_create(hist_data.size() * 4, hist_data.to_byte_array(), RenderingDevice.STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT)
+	
+	depth_out_uniform = RDUniform.new()
+	depth_out_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
+	depth_out_uniform.binding = 1
+	depth_out_uniform.add_id(depth_out_buffer)
+	
+	histogram_uniform_set0 = RDUniform.new()
+	histogram_uniform_set0.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
+	histogram_uniform_set0.binding = 1
+	histogram_uniform_set0.add_id(histogram_buffer)	
+	
+	histogram_uniform_set1 = RDUniform.new()
+	histogram_uniform_set1.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
+	histogram_uniform_set1.binding = 2
+	histogram_uniform_set1.add_id(histogram_buffer)	
+	
+	sort_pipeline = rd.compute_pipeline_create(radixsort_shader)
+	histogram_pipeline = rd.compute_pipeline_create(radixsort_hist_shader)
 
 	# Configure splat vertex/frag shader
 	var shader_file = load("res://shaders/splat.glsl")
@@ -214,30 +288,9 @@ func _ready():
 	camera_matrices_buffer = rd.storage_buffer_create(camera_matrices_bytes.size(), camera_matrices_bytes)
 	var camera_matrices_uniform := RDUniform.new()
 	camera_matrices_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	camera_matrices_uniform.binding = 0
+	camera_matrices_uniform.binding = 3
 	camera_matrices_uniform.add_id(camera_matrices_buffer)
 	
-	var tan_fovy = tan(deg_to_rad($Camera.fov) * 0.5)
-	var tan_fovx = tan_fovy * get_viewport().size.x / get_viewport().size.y
-	var focal_y = get_viewport().size.y / (2 * tan_fovy)
-	var focal_x = get_viewport().size.x / (2 * tan_fovx)
-	
-	# Viewport size buffer
-	var params : PackedByteArray = PackedFloat32Array([
-		get_viewport().size.x,
-		get_viewport().size.y,
-		tan_fovx,
-		tan_fovy,
-		focal_x,
-		focal_y,
-		modifier,
-		sh_degree,
-	]).to_byte_array()
-	params_buffer = rd.storage_buffer_create(params.size(), params)
-	var params_uniform := RDUniform.new()
-	params_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	params_uniform.binding = 1
-	params_uniform.add_id(params_buffer)
 	
 	# Configure blend mode
 	var blend_attachment = RDPipelineColorBlendStateAttachment.new()	
@@ -258,15 +311,15 @@ func _ready():
 	framebuffer = rd.framebuffer_create([output_tex], framebuffer_format)
 	print("framebuffer valid: ",rd.framebuffer_is_valid(framebuffer))
 	
+	
 	var bindings = [
 		camera_matrices_uniform,
 		params_uniform,
 		depth_uniform,
-		depth_index_uniform,
 		vertices_uniform,
+		cov3d_uniform,
 	]
 	uniform_set = rd.uniform_set_create(bindings, shader, 0)
-	
 	pipeline = rd.render_pipeline_create(
 		shader,
 		framebuffer_format,
@@ -277,15 +330,14 @@ func _ready():
 		RDPipelineDepthStencilState.new(),
 		blend
 	)
-
+	
 	print("render pipeline valid: ", rd.render_pipeline_is_valid(pipeline))
 	print("compute1 pipeline valid: ", rd.compute_pipeline_is_valid(sort_pipeline))
-	print("compute2 pipeline valid: ", rd.compute_pipeline_is_valid(sort2_pipeline))
 
 	# Do once to ensure splat drawn in correct order at start
 	update()
 	render()
-	bitonic_sort()
+	radix_sort()
 
 
 # Reconfigure render pipeline with new viewport size
@@ -305,33 +357,52 @@ func _on_viewport_size_changed():
 	)
 
 	
-# Adapted from:
-# https://github.com/9ballsyndrome/WebGL_Compute_shader/tree/master/webgl-compute-bitonicSort
-func bitonic_sort():
-	var threads_per_grid: int = max(1, depth_index.size() / 1024)
-	var compute_list := rd.compute_list_begin()
-	rd.compute_list_bind_compute_pipeline(compute_list, sort_pipeline)
-	rd.compute_list_bind_uniform_set(compute_list, sort_uniform_set, 0)
-	rd.compute_list_dispatch(compute_list, threads_per_grid, 1, 1)
-	rd.compute_list_add_barrier(compute_list)
 
-	var k: int = threads_per_grid
-	while k <= depth_index.size():
-		var j = k / 2
-		while j > 0:
-			var push_constant = PackedInt32Array([k, j, 0, 0])
-			rd.compute_list_bind_compute_pipeline(compute_list, sort2_pipeline)
-			rd.compute_list_set_push_constant(compute_list, push_constant.to_byte_array(), push_constant.size() * 4)
-			rd.compute_list_bind_uniform_set(compute_list, sort_uniform_set, 0)
-			rd.compute_list_dispatch(compute_list, threads_per_grid, 1, 1)
-			rd.compute_list_add_barrier(compute_list)
-			j /= 2 
-		k *= 2
+
+func radix_sort():
+	
+	var compute_list := rd.compute_list_begin()
+	for i in range(4):
+		var push_constant = PackedInt32Array([num_vertex, i * 8, NUM_WORKGROUPS, NUM_BLOCKS_PER_WORKGROUP])
+		depth_uniform.clear_ids()
+		depth_out_uniform.clear_ids()
+		
+		if i == 0 or i == 2:
+			depth_uniform.add_id(depth_in_buffer)
+			depth_out_uniform.add_id(depth_out_buffer)
+		else:
+			depth_uniform.add_id(depth_out_buffer)
+			depth_out_uniform.add_id(depth_in_buffer)
+			
+		var histogram_bindings = [
+			depth_uniform,
+			histogram_uniform_set0
+		]
+		var hist_uniform_set = rd.uniform_set_create(histogram_bindings, radixsort_hist_shader, 0)
+		
+		rd.compute_list_bind_compute_pipeline(compute_list, histogram_pipeline)
+		rd.compute_list_set_push_constant(compute_list, push_constant.to_byte_array(), push_constant.size() * 4)
+		rd.compute_list_bind_uniform_set(compute_list, hist_uniform_set, 0)
+		rd.compute_list_dispatch(compute_list, globalInvocationSize, 1, 1)
+		rd.compute_list_add_barrier(compute_list)
+		
+		var radixsort_bindings = [
+			depth_uniform,
+			depth_out_uniform,
+			histogram_uniform_set1
+		]
+		var sort_uniform_set = rd.uniform_set_create(radixsort_bindings, radixsort_shader, 1)
+		
+		rd.compute_list_bind_compute_pipeline(compute_list, sort_pipeline)
+		rd.compute_list_set_push_constant(compute_list, push_constant.to_byte_array(), push_constant.size() * 4)
+		rd.compute_list_bind_uniform_set(compute_list, sort_uniform_set, 1)
+		rd.compute_list_dispatch(compute_list, globalInvocationSize, 1, 1)
+		rd.compute_list_add_barrier(compute_list)
 	
 	rd.compute_list_end()
 	rd.submit()
 	rd.sync()
-
+	
 
 # Called every frame. 'delta' is the elapsed time since the previous frame.
 func update():	
@@ -368,7 +439,7 @@ func render():
 	rd.draw_list_bind_uniform_set(draw_list, uniform_set, 0)
 	rd.draw_list_bind_vertex_array(draw_list, vertex_array)
 	rd.draw_list_draw(draw_list, false, num_vertex)
-	rd.draw_list_end(RenderingDevice.BARRIER_MASK_VERTEX)
+	rd.draw_list_end()
 	
 	var byte_data := rd.texture_get_data(output_tex,0)
 	_set_screen_texture_data(byte_data)
@@ -377,6 +448,7 @@ func render():
 func _process(delta):	
 	update()
 	render()
+	pass
 	
 	
 func _input(event):
@@ -393,7 +465,7 @@ func _sort_splats_by_depth():
 	var angle = acos(clamp(cos_angle, -1, 1))
 	
 	# Only re-sort if camera has changed enough
-	if angle > 0.6:
-		bitonic_sort()
+	if angle > 0.2:
+		radix_sort()
 		last_direction = direction
 		
