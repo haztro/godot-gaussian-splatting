@@ -27,7 +27,7 @@ layout(set = 0, binding = 0, std430) buffer DepthBuffer {
     uvec2 depth[];
 };
 
-layout(set = 0, binding = 2, std430) restrict buffer VerticesBuffer {
+layout(set = 1, binding = 0, std430) restrict buffer VerticesBuffer {
     float vertices[];
 };
 
@@ -203,7 +203,7 @@ void main()
     float opacity = vertices[idx + 54];
 
     vec4 ndc = clipSpace / clipSpace.w;
-    ndc.x *= -1;    // Not sure why i need this tbh
+    ndc.x *= -1; 
 
     vec3 cov2d = computeCov2D(pos, scale, rot, viewMatrix, idx);
 	float det = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
