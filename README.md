@@ -1,10 +1,10 @@
 # Godot 3D Gaussian Splatting
 
-This is a Godot 4 implementation of 3D Gaussian splatting. Godot doesn't provide order-independent transparency so the only way to get splats to draw in the correct order (as far as I could work out) is to use the RenderingServer API. The splat transformations/rendering are done in the splat.glsl shader and I use compute shaders to implement bitonic sorting for sorting the splats by depth. 
+This is a WIP Godot 4 implementation of 3D Gaussian splatting. The splat transformations/rendering are done in the splat.glsl shader and I use compute shaders to implement bitonic sorting for sorting the splats by depth. It's a bit jank since bitonic sorting requires the array size to be a power of two. For now I just truncate the number of splats to the nearest power of 2. Radix sort would be a better choice (for gpu parallel sort) here. 
 
-To try it out, define the "splat_filename" export as the .ply file you want to view. For the bigger files (> 1M splats) it takes a while to load - loading implementation is pretty dumb. There's also still bugs related to splat sorting/culling.
+To try it out, define the "splat_filename" export as the .ply file you want to view. 
 
-## Current Results
+## Example Views
 
 ![bicycle](assets/bicycle.PNG)
 
@@ -12,7 +12,3 @@ To try it out, define the "splat_filename" export as the .ply file you want to v
 
 ![garden](assets/garden.PNG)
 
-## TODO 
-- better splat loading
-- opengl to vulkan bugs - culling/projection matrix is incorrect i think
-- add stuff info to readme
