@@ -23,18 +23,13 @@ layout(set = 0, binding = 1, std430) restrict buffer Params {
 params;
 
 
-layout(set = 0, binding = 2, std430) restrict buffer VerticesBuffer {
-    float vertices[];
-};
-
 layout(set = 0, binding = 0, std430) buffer DepthBuffer {
     uvec2 depth[];
 };
 
-layout(set = 0, binding = 5, std430) buffer Cov3dBuffer {
-    float precomp_cov3d[];
+layout(set = 1, binding = 0, std430) restrict buffer VerticesBuffer {
+    float vertices[];
 };
-
 
 
 // Helpful resources:
@@ -116,12 +111,7 @@ mat3 computeCov3D(vec3 scale, vec4 rot) {
 
 
 vec3 computeCov2D(vec3 position, vec3 log_scale, vec4 rot, mat4 viewMatrix, int idx) {
-    mat3 cov3D = mat3(
-		vec3(precomp_cov3d[idx + 0], precomp_cov3d[idx + 1], precomp_cov3d[idx + 2]),
-		vec3(precomp_cov3d[idx + 3], precomp_cov3d[idx + 4], precomp_cov3d[idx + 5]),
-		vec3(precomp_cov3d[idx + 6], precomp_cov3d[idx + 7], precomp_cov3d[idx + 8])
-	);
-
+    mat3 cov3D = computeCov3D(log_scale, rot);
     vec4 t = viewMatrix * vec4(position, 1.0);
 
     float limx = 1.3 * params.tan_fovx;
@@ -213,9 +203,9 @@ void main()
     float opacity = vertices[idx + 54];
 
     vec4 ndc = clipSpace / clipSpace.w;
-    ndc.x *= -1;    // Not sure why i need this tbh
+    ndc.x *= -1; 
 
-    vec3 cov2d = computeCov2D(pos, scale, rot, viewMatrix, int(depth[gl_InstanceIndex][1]) * 9);
+    vec3 cov2d = computeCov2D(pos, scale, rot, viewMatrix, idx);
 	float det = cov2d.x * cov2d.z - cov2d.y * cov2d.y;
     if (det == 0.) {
         gl_Position = vec4(0, 0, 2, 1);

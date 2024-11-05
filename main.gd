@@ -13,7 +13,8 @@ var blend := RDPipelineColorBlendState.new()
 var framebuffer: RID
 var vertex_array: RID
 var index_array: RID
-var uniform_set: RID
+var static_uniform_set: RID
+var dynamic_uniform_set: RID
 var clear_color_values := PackedColorArray([Color(0,0,0,0)])
 
 var num_coeffs = 45
@@ -44,7 +45,7 @@ var last_direction := Vector3.ZERO
 
 var vertices: PackedFloat32Array
 
-const NUM_BLOCKS_PER_WORKGROUP = 2048
+const NUM_BLOCKS_PER_WORKGROUP = 1024
 var NUM_WORKGROUPS
 
 
@@ -131,22 +132,13 @@ func _ready():
 	
 	var vertices_uniform = RDUniform.new()
 	vertices_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	vertices_uniform.binding = 2
+	vertices_uniform.binding = 0
 	vertices_uniform.add_id(vertices_buffer)
 	
-	var cov3d_data = PackedFloat32Array()
-	cov3d_data.resize(num_vertex * 9)
-	
 	var depth_in_data = PackedInt32Array()
-	var cov3d_buffer = rd.storage_buffer_create(cov3d_data.size() * 4, cov3d_data.to_byte_array())
-	
-	#depth_in_data.resize(num_vertex * 2)
-	depth_in_buffer = rd.storage_buffer_create(num_vertex * 2 * 4, PackedByteArray(), RenderingDevice.STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT)
-	
-	var cov3d_uniform = RDUniform.new()
-	cov3d_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	cov3d_uniform.binding = 5
-	cov3d_uniform.add_id(cov3d_buffer)	
+	for i in range(num_vertex):
+		depth_in_data.append_array([0, i])
+	depth_in_buffer = rd.storage_buffer_create(num_vertex * 2 * 4, depth_in_data.to_byte_array(), RenderingDevice.STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT)
 	
 	depth_uniform = RDUniform.new()
 	depth_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
@@ -174,30 +166,6 @@ func _ready():
 	params_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
 	params_uniform.binding = 1
 	params_uniform.add_id(params_buffer)
-		
-		
-	# Configure precomp cov3d compute shader
-	var precomp_shader_file = load("res://shaders/precomp_cov3d.glsl")
-	var precomp_shader_spirv = precomp_shader_file.get_spirv()
-	var precomp_shader = rd.shader_create_from_spirv(precomp_shader_spirv)	
-		
-	var precomp_bindings = [
-		params_uniform,
-		vertices_uniform,
-		cov3d_uniform,
-		depth_uniform
-	]
-	var precomp_uniform_set = rd.uniform_set_create(precomp_bindings, precomp_shader, 0)
-	var precomp_pipeline := rd.compute_pipeline_create(precomp_shader)
-	var precomp_compute_list := rd.compute_list_begin()
-	rd.compute_list_bind_compute_pipeline(precomp_compute_list, precomp_pipeline)
-	rd.compute_list_bind_uniform_set(precomp_compute_list, precomp_uniform_set, 0)
-	rd.compute_list_dispatch(precomp_compute_list, num_vertex, 1, 1)
-	rd.compute_list_end()
-	rd.submit()
-	rd.sync()
-	
-	print("HERE")
 		
 	var radixsort_shader_file = load("res://shaders/multi_radixsort.glsl")
 	var radixsort_shader_spirv = radixsort_shader_file.get_spirv()
@@ -311,15 +279,19 @@ func _ready():
 	framebuffer = rd.framebuffer_create([output_tex], framebuffer_format)
 	print("framebuffer valid: ",rd.framebuffer_is_valid(framebuffer))
 	
+	var static_bindings = [
+		vertices_uniform,
+	]
 	
-	var bindings = [
+	var dynamic_bindings = [
 		camera_matrices_uniform,
 		params_uniform,
 		depth_uniform,
-		vertices_uniform,
-		cov3d_uniform,
 	]
-	uniform_set = rd.uniform_set_create(bindings, shader, 0)
+	
+	dynamic_uniform_set = rd.uniform_set_create(dynamic_bindings, shader, 0)
+	static_uniform_set = rd.uniform_set_create(static_bindings, shader, 1)
+	
 	pipeline = rd.render_pipeline_create(
 		shader,
 		framebuffer_format,
@@ -333,7 +305,8 @@ func _ready():
 	
 	print("render pipeline valid: ", rd.render_pipeline_is_valid(pipeline))
 	print("compute1 pipeline valid: ", rd.compute_pipeline_is_valid(sort_pipeline))
-
+	
+	
 	# Do once to ensure splat drawn in correct order at start
 	update()
 	render()
@@ -357,8 +330,6 @@ func _on_viewport_size_changed():
 	)
 
 	
-
-
 func radix_sort():
 	
 	var compute_list := rd.compute_list_begin()
@@ -436,7 +407,8 @@ func update():
 func render():
 	var draw_list := rd.draw_list_begin(framebuffer, RenderingDevice.INITIAL_ACTION_CLEAR, RenderingDevice.FINAL_ACTION_READ, RenderingDevice.INITIAL_ACTION_CLEAR, RenderingDevice.FINAL_ACTION_READ, clear_color_values)
 	rd.draw_list_bind_render_pipeline(draw_list, pipeline)
-	rd.draw_list_bind_uniform_set(draw_list, uniform_set, 0)
+	rd.draw_list_bind_uniform_set(draw_list, dynamic_uniform_set, 0)
+	rd.draw_list_bind_uniform_set(draw_list, static_uniform_set, 1)
 	rd.draw_list_bind_vertex_array(draw_list, vertex_array)
 	rd.draw_list_draw(draw_list, false, num_vertex)
 	rd.draw_list_end()
@@ -448,7 +420,6 @@ func render():
 func _process(delta):	
 	update()
 	render()
-	pass
 	
 	
 func _input(event):

@@ -4,8 +4,8 @@ extends Camera3D
 # https://github.com/nekotogd/Raytracing_Godot4
 
 @export var mouse_sensitivity : float = 0.5
-@export var move_speed : float = 0.1
-@export var roll_speed: float = 0.5
+@export var move_speed : float = 5.0
+@export var roll_speed: float = 40.0
 
 func _input(event):
 	if event is InputEventMouseMotion:
@@ -21,9 +21,9 @@ func _process(_delta):
 		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 		
 	if Input.is_action_pressed("roll_cw"):
-		rotate_object_local(Vector3(0.0, 0.0, 1.0), deg_to_rad(-roll_speed))
+		rotate_object_local(Vector3(0.0, 0.0, 1.0), deg_to_rad(-roll_speed * _delta))
 	if Input.is_action_pressed("roll_ccw"):
-		rotate_object_local(Vector3(0.0, 0.0, 1.0), deg_to_rad(roll_speed))
+		rotate_object_local(Vector3(0.0, 0.0, 1.0), deg_to_rad(roll_speed * _delta))
 		
 		
 	_move(_delta)
@@ -37,11 +37,11 @@ func _move(_delta):
 		input_vector = input_vector.normalized()
 	
 	var displacement := Vector3.ZERO
-	displacement = global_transform.basis.z * move_speed * input_vector.z# * _delta
+	displacement = global_transform.basis.z * move_speed * input_vector.z * _delta
 	global_transform.origin += displacement
 	
-	displacement = global_transform.basis.x * move_speed * input_vector.x# * _delta
+	displacement = global_transform.basis.x * move_speed * input_vector.x * _delta
 	global_transform.origin += displacement
 	
-	displacement = global_transform.basis.y * move_speed * input_vector.y# * _delta
+	displacement = global_transform.basis.y * move_speed * input_vector.y * _delta
 	global_transform.origin -= displacement
