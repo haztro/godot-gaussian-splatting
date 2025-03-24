@@ -4,7 +4,7 @@ extends Node3D
 @onready var screen_texture = get_node("TextureRect")
 @export var splat_filename: String = "train.ply"
 
-var rd = RenderingServer.create_local_rendering_device()
+var rd = RenderingServer.get_rendering_device()
 var pipeline: RID
 var shader: RID
 var vertex_format: int
@@ -38,6 +38,8 @@ var globalInvocationSize: int
 var num_vertex: int
 var output_tex: RID
 
+var display_texture:Texture2DRD
+
 var camera_matrices_buffer: RID
 var params_buffer: RID
 var modifier: float = 1.0
@@ -62,16 +64,8 @@ func _matrix_to_bytes(t : Transform3D):
 
 
 func _initialise_screen_texture():
-	var image_size = get_viewport().size
-	var image = Image.create(image_size.x, image_size.y, false, Image.FORMAT_RGBAF)
-	var image_texture = ImageTexture.create_from_image(image)
-	screen_texture.texture = image_texture
-	
-	
-func _set_screen_texture_data(data: PackedByteArray):
-	var image_size = get_viewport().size
-	var image := Image.create_from_data(image_size.x, image_size.y, false, Image.FORMAT_RGBAF, data)
-	screen_texture.texture.update(image)
+	display_texture = Texture2DRD.new()
+	screen_texture.texture = display_texture
 
 
 func _load_ply_file():
@@ -107,14 +101,16 @@ func _initialise_framebuffer_format():
 	tex_format.height = get_viewport().size.y
 	tex_format.width = get_viewport().size.x
 	tex_format.format = RenderingDevice.DATA_FORMAT_R32G32B32A32_SFLOAT
-	tex_format.usage_bits = (RenderingDevice.TEXTURE_USAGE_COLOR_ATTACHMENT_BIT | RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT) 
+	tex_format.usage_bits = (RenderingDevice.TEXTURE_USAGE_COLOR_ATTACHMENT_BIT | RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT)
 	output_tex = rd.texture_create(tex_format,tex_view)
 
+	display_texture.texture_rd_rid = output_tex
+	
 	var attachments = []
 	var attachment_format := RDAttachmentFormat.new()
 	attachment_format.set_format(tex_format.format)
 	attachment_format.set_samples(RenderingDevice.TEXTURE_SAMPLES_1)
-	attachment_format.usage_flags = RenderingDevice.TEXTURE_USAGE_COLOR_ATTACHMENT_BIT | RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT
+	attachment_format.usage_flags = RenderingDevice.TEXTURE_USAGE_COLOR_ATTACHMENT_BIT | RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT
 	attachments.push_back(attachment_format)	
 	var framebuf_format = rd.framebuffer_format_create(attachments)
 	return framebuf_format
@@ -371,8 +367,6 @@ func radix_sort():
 		rd.compute_list_add_barrier(compute_list)
 	
 	rd.compute_list_end()
-	rd.submit()
-	rd.sync()
 	
 
 # Called every frame. 'delta' is the elapsed time since the previous frame.
@@ -412,10 +406,6 @@ func render():
 	rd.draw_list_bind_vertex_array(draw_list, vertex_array)
 	rd.draw_list_draw(draw_list, false, num_vertex)
 	rd.draw_list_end()
-	
-	var byte_data := rd.texture_get_data(output_tex,0)
-	_set_screen_texture_data(byte_data)
-
 
 func _process(delta):	
 	update()
