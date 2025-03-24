@@ -4,7 +4,7 @@ extends Node3D
 @onready var screen_texture = get_node("TextureRect")
 @export var splat_filename: String = "train.ply"
 
-var rd = RenderingServer.create_local_rendering_device()
+var rd = RenderingServer.get_rendering_device()
 var pipeline: RID
 var shader: RID
 var vertex_format: int
