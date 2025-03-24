@@ -367,8 +367,6 @@ func radix_sort():
 		rd.compute_list_add_barrier(compute_list)
 	
 	rd.compute_list_end()
-	rd.submit()
-	rd.sync()
 	
 
 # Called every frame. 'delta' is the elapsed time since the previous frame.
