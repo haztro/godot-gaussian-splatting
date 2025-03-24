@@ -101,7 +101,7 @@ func _initialise_framebuffer_format():
 	tex_format.height = get_viewport().size.y
 	tex_format.width = get_viewport().size.x
 	tex_format.format = RenderingDevice.DATA_FORMAT_R32G32B32A32_SFLOAT
-	tex_format.usage_bits = (RenderingDevice.TEXTURE_USAGE_COLOR_ATTACHMENT_BIT | RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT) 
+	tex_format.usage_bits = (RenderingDevice.TEXTURE_USAGE_COLOR_ATTACHMENT_BIT | RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT)
 	output_tex = rd.texture_create(tex_format,tex_view)
 
 	display_texture.texture_rd_rid = output_tex
@@ -110,7 +110,7 @@ func _initialise_framebuffer_format():
 	var attachment_format := RDAttachmentFormat.new()
 	attachment_format.set_format(tex_format.format)
 	attachment_format.set_samples(RenderingDevice.TEXTURE_SAMPLES_1)
-	attachment_format.usage_flags = RenderingDevice.TEXTURE_USAGE_COLOR_ATTACHMENT_BIT | RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT
+	attachment_format.usage_flags = RenderingDevice.TEXTURE_USAGE_COLOR_ATTACHMENT_BIT | RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT
 	attachments.push_back(attachment_format)	
 	var framebuf_format = rd.framebuffer_format_create(attachments)
 	return framebuf_format
