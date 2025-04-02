@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://hvw50yhjbe5y"
+path="res://.godot/imported/visible_splats.glsl-cfe2ba127cb4d3a9e4affd91ae974d06.res"
+
+[deps]
+
+source_file="res://shaders/visible_splats.glsl"
+dest_files=["res://.godot/imported/visible_splats.glsl-cfe2ba127cb4d3a9e4affd91ae974d06.res"]
+
+[params]
+

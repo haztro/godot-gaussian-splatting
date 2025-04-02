@@ -23,7 +23,7 @@ layout(set = 0, binding = 1, std430) restrict buffer Params {
 params;
 
 
-layout(set = 0, binding = 0, std430) buffer DepthBuffer {
+layout(set = 0, binding = 4, std430) buffer DepthBuffer {
     uvec2 depth[];
 };
 
@@ -190,11 +190,9 @@ void main()
     vec4 clipSpace = projMatrix * viewMatrix * vec4(pos, 1.0);
     float clip = 1.1 * clipSpace.w;
     float dist = clipSpace.z / clipSpace.w;
-    depth[gl_InstanceIndex][0] = uint((1 - dist * 0.5 + 0.5) * 0xFFFF);
-
 
     if (clipSpace.z < -clip || clipSpace.z > clip || clipSpace.x < -clip || clipSpace.x > clip || clipSpace.y < -clip || clipSpace.y > clip) {
-        gl_Position = vec4(0, 0, 2, 1);
+        gl_Position = vec4(0, 0, 2, 1); 
         return;
     }
     

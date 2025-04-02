@@ -17,13 +17,15 @@ var static_uniform_set: RID
 var dynamic_uniform_set: RID
 var clear_color_values := PackedColorArray([Color(0,0,0,0)])
 
+var cull_uniform_set1: RID
+var cull_uniform_set2: RID
+
 var num_coeffs = 45
 var num_coeffs_per_color = num_coeffs / 3
 var sh_degree = sqrt(num_coeffs_per_color + 1) - 1	
 
 var sort_pipeline: RID
 var histogram_pipeline: RID
-var depth_in_buffer: RID
 var depth_out_buffer: RID
 var histogram_buffer: RID
 var depth_uniform
@@ -34,6 +36,14 @@ var radixsort_hist_shader: RID
 var radixsort_shader: RID
 var globalInvocationSize: int
 
+var cull_buffer: RID
+var cull_uniform: RDUniform
+var visible_counter_buffer: RID
+var visible_counter_uniform: RDUniform
+var cull_pipeline: RID
+var cull_shader: RID
+
+var visible_count: int = 0
 
 var num_vertex: int
 var output_tex: RID
@@ -44,6 +54,7 @@ var camera_matrices_buffer: RID
 var params_buffer: RID
 var modifier: float = 1.0
 var last_direction := Vector3.ZERO
+var last_position := Vector3.ZERO
 
 var vertices: PackedFloat32Array
 
@@ -131,16 +142,6 @@ func _ready():
 	vertices_uniform.binding = 0
 	vertices_uniform.add_id(vertices_buffer)
 	
-	var depth_in_data = PackedInt32Array()
-	for i in range(num_vertex):
-		depth_in_data.append_array([0, i])
-	depth_in_buffer = rd.storage_buffer_create(num_vertex * 2 * 4, depth_in_data.to_byte_array(), RenderingDevice.STORAGE_BUFFER_USAGE_DISPATCH_INDIRECT)
-	
-	depth_uniform = RDUniform.new()
-	depth_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	depth_uniform.binding = 0
-	depth_uniform.add_id(depth_in_buffer)
-		
 	var tan_fovy = tan(deg_to_rad($Camera.fov) * 0.5)
 	var tan_fovx = tan_fovy * get_viewport().size.x / get_viewport().size.y
 	var focal_y = get_viewport().size.y / (2 * tan_fovy)
@@ -275,6 +276,35 @@ func _ready():
 	framebuffer = rd.framebuffer_create([output_tex], framebuffer_format)
 	print("framebuffer valid: ",rd.framebuffer_is_valid(framebuffer))
 	
+
+	cull_buffer = rd.storage_buffer_create(num_vertex * 2 * 4)
+	cull_uniform = RDUniform.new()
+	cull_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
+	cull_uniform.binding = 4
+	cull_uniform.add_id(cull_buffer)
+	
+	depth_uniform = RDUniform.new()
+	depth_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
+	depth_uniform.binding = 0
+	depth_uniform.add_id(cull_buffer)
+		
+	
+	# Counter buffer (only one uint)
+	var zero = PackedByteArray()
+	zero.resize(4)
+	visible_counter_buffer = rd.storage_buffer_create(4, zero)
+	visible_counter_uniform = RDUniform.new()
+	visible_counter_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
+	visible_counter_uniform.binding = 2
+	visible_counter_uniform.add_id(visible_counter_buffer)
+	
+	# Load and create pipeline
+	var cull_shader_file = load("res://shaders/visible_splats.glsl")
+	var cull_shader_spirv = cull_shader_file.get_spirv()
+	cull_shader = rd.shader_create_from_spirv(cull_shader_spirv)
+	cull_pipeline = rd.compute_pipeline_create(cull_shader)
+	
+	
 	var static_bindings = [
 		vertices_uniform,
 	]
@@ -282,7 +312,7 @@ func _ready():
 	var dynamic_bindings = [
 		camera_matrices_uniform,
 		params_uniform,
-		depth_uniform,
+		cull_uniform,
 	]
 	
 	dynamic_uniform_set = rd.uniform_set_create(dynamic_bindings, shader, 0)
@@ -299,14 +329,45 @@ func _ready():
 		blend
 	)
 	
+	var cull_bindings = [
+		params_uniform,
+		visible_counter_uniform,
+		camera_matrices_uniform,
+		cull_uniform,  # output = compacted_buffer
+	]
+
+	cull_uniform_set1 = rd.uniform_set_create(cull_bindings, cull_shader, 0)
+	cull_uniform_set2 = rd.uniform_set_create(static_bindings, cull_shader, 1)
+	
+	
 	print("render pipeline valid: ", rd.render_pipeline_is_valid(pipeline))
 	print("compute1 pipeline valid: ", rd.compute_pipeline_is_valid(sort_pipeline))
+	print("visible compute pipeline valid: ", rd.compute_pipeline_is_valid(cull_pipeline))
 	
 	
 	# Do once to ensure splat drawn in correct order at start
 	update()
 	render()
+	compute_depth_and_visibility()
 	radix_sort()
+
+
+func compute_depth_and_visibility():
+	# Reset visible counter
+	visible_count = 0
+	var zero := PackedByteArray([0, 0, 0, 0])
+	rd.buffer_update(visible_counter_buffer, 0, 4, zero)
+	
+	var compute_list = rd.compute_list_begin()
+	rd.compute_list_bind_compute_pipeline(compute_list, cull_pipeline)
+	rd.compute_list_bind_uniform_set(compute_list, cull_uniform_set1, 0)
+	rd.compute_list_bind_uniform_set(compute_list, cull_uniform_set2, 1)
+	var num_groups = int(ceil(float(num_vertex) / 512.0))
+	rd.compute_list_dispatch(compute_list, num_groups, 1, 1)
+	rd.compute_list_end()
+	
+	var visible_count = rd.buffer_get_data(visible_counter_buffer).to_int32_array()[0]
+	print(visible_count)
 
 
 # Reconfigure render pipeline with new viewport size
@@ -327,47 +388,61 @@ func _on_viewport_size_changed():
 
 	
 func radix_sort():
+	# Read visible count
+	visible_count = rd.buffer_get_data(visible_counter_buffer).to_int32_array()[0]
 	
+	globalInvocationSize = visible_count / NUM_BLOCKS_PER_WORKGROUP
+	var remainder = visible_count % NUM_BLOCKS_PER_WORKGROUP
+	if remainder > 0:
+		globalInvocationSize += 1
+	
+	# Skip sort if nothing visible
+	if visible_count == 0:
+		return
+
 	var compute_list := rd.compute_list_begin()
 	for i in range(4):
-		var push_constant = PackedInt32Array([num_vertex, i * 8, NUM_WORKGROUPS, NUM_BLOCKS_PER_WORKGROUP])
+		var push_constant = PackedInt32Array([visible_count, i * 8, NUM_WORKGROUPS, NUM_BLOCKS_PER_WORKGROUP])
+
 		depth_uniform.clear_ids()
 		depth_out_uniform.clear_ids()
-		
+
+		# Use compacted buffer as input
 		if i == 0 or i == 2:
-			depth_uniform.add_id(depth_in_buffer)
+			depth_uniform.add_id(cull_buffer)
 			depth_out_uniform.add_id(depth_out_buffer)
 		else:
 			depth_uniform.add_id(depth_out_buffer)
-			depth_out_uniform.add_id(depth_in_buffer)
-			
+			depth_out_uniform.add_id(cull_buffer)
+
+		# Histogram and sort stages (same as before)
 		var histogram_bindings = [
 			depth_uniform,
 			histogram_uniform_set0
 		]
 		var hist_uniform_set = rd.uniform_set_create(histogram_bindings, radixsort_hist_shader, 0)
-		
+
 		rd.compute_list_bind_compute_pipeline(compute_list, histogram_pipeline)
 		rd.compute_list_set_push_constant(compute_list, push_constant.to_byte_array(), push_constant.size() * 4)
 		rd.compute_list_bind_uniform_set(compute_list, hist_uniform_set, 0)
 		rd.compute_list_dispatch(compute_list, globalInvocationSize, 1, 1)
 		rd.compute_list_add_barrier(compute_list)
-		
+
 		var radixsort_bindings = [
 			depth_uniform,
 			depth_out_uniform,
 			histogram_uniform_set1
 		]
 		var sort_uniform_set = rd.uniform_set_create(radixsort_bindings, radixsort_shader, 1)
-		
+
 		rd.compute_list_bind_compute_pipeline(compute_list, sort_pipeline)
 		rd.compute_list_set_push_constant(compute_list, push_constant.to_byte_array(), push_constant.size() * 4)
 		rd.compute_list_bind_uniform_set(compute_list, sort_uniform_set, 1)
 		rd.compute_list_dispatch(compute_list, globalInvocationSize, 1, 1)
 		rd.compute_list_add_barrier(compute_list)
-	
+
 	rd.compute_list_end()
-	
+
 
 # Called every frame. 'delta' is the elapsed time since the previous frame.
 func update():	
@@ -399,12 +474,12 @@ func update():
 	
 
 func render():
-	var draw_list := rd.draw_list_begin(framebuffer, RenderingDevice.INITIAL_ACTION_CLEAR, RenderingDevice.FINAL_ACTION_READ, RenderingDevice.INITIAL_ACTION_CLEAR, RenderingDevice.FINAL_ACTION_READ, clear_color_values)
+	var draw_list := rd.draw_list_begin(framebuffer, RenderingDevice.DRAW_CLEAR_COLOR_ALL, clear_color_values)
 	rd.draw_list_bind_render_pipeline(draw_list, pipeline)
 	rd.draw_list_bind_uniform_set(draw_list, dynamic_uniform_set, 0)
 	rd.draw_list_bind_uniform_set(draw_list, static_uniform_set, 1)
 	rd.draw_list_bind_vertex_array(draw_list, vertex_array)
-	rd.draw_list_draw(draw_list, false, num_vertex)
+	rd.draw_list_draw(draw_list, false, visible_count)
 	rd.draw_list_end()
 
 func _process(delta):	
@@ -421,12 +496,18 @@ func _input(event):
 		
 
 func _sort_splats_by_depth():
-	var direction = camera.global_transform.basis.z.normalized()
-	var cos_angle = last_direction.dot(direction)
-	var angle = acos(clamp(cos_angle, -1, 1))
-	
-	# Only re-sort if camera has changed enough
-	if angle > 0.2:
+	var new_position = camera.global_transform.origin
+	var new_direction = camera.global_transform.basis.z.normalized()
+
+	var direction_delta = last_direction.dot(new_direction)
+	var angle_change = acos(clamp(direction_delta, -1, 1))
+
+	var position_delta = new_position.distance_to(last_position)
+
+	if angle_change > 0.05 or position_delta > 0.05:
+		compute_depth_and_visibility()
 		radix_sort()
-		last_direction = direction
+		last_direction = new_direction
+		last_position = new_position
+
 		
