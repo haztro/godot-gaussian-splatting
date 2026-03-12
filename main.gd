@@ -2,7 +2,7 @@ extends Node3D
 
 @onready var camera = get_node("Camera")
 @onready var screen_texture = get_node("TextureRect")
-@export var splat_filename: String = "train.ply"
+@export var splat_filename: String = "garden.ply"
 
 var rd = RenderingServer.get_rendering_device()
 var pipeline: RID
@@ -57,6 +57,16 @@ var last_direction := Vector3.ZERO
 var last_position := Vector3.ZERO
 
 var vertices: PackedFloat32Array
+
+var hist_uniform_set_A: RID
+var hist_uniform_set_B: RID
+var sort_uniform_set_A: RID
+var sort_uniform_set_B: RID
+
+# We'll need separate uniforms for the ping-pong buffers
+var depth_in_uniform_hist: RDUniform
+var depth_in_uniform_sort: RDUniform
+var depth_out_uniform_sort: RDUniform
 
 const NUM_BLOCKS_PER_WORKGROUP = 1024
 var NUM_WORKGROUPS
@@ -287,7 +297,46 @@ func _ready():
 	depth_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
 	depth_uniform.binding = 0
 	depth_uniform.add_id(cull_buffer)
-		
+	
+	# -- Histogram Sets --
+	var hist_uniform_A := RDUniform.new()
+	hist_uniform_A.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
+	hist_uniform_A.binding = 0
+	hist_uniform_A.add_id(cull_buffer) # Initial input is cull_buffer
+
+	var hist_uniform_B := RDUniform.new()
+	hist_uniform_B.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
+	hist_uniform_B.binding = 0
+	hist_uniform_B.add_id(depth_out_buffer) # The other possible input
+
+	hist_uniform_set_A = rd.uniform_set_create([hist_uniform_A, histogram_uniform_set0], radixsort_hist_shader, 0)
+	hist_uniform_set_B = rd.uniform_set_create([hist_uniform_B, histogram_uniform_set0], radixsort_hist_shader, 0)
+
+	# -- Sort (Scatter) Sets --
+	var sort_in_uniform_A := RDUniform.new()
+	sort_in_uniform_A.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
+	sort_in_uniform_A.binding = 0
+	sort_in_uniform_A.add_id(cull_buffer)
+
+	var sort_out_uniform_A := RDUniform.new()
+	sort_out_uniform_A.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
+	sort_out_uniform_A.binding = 1
+	sort_out_uniform_A.add_id(depth_out_buffer)
+
+	sort_uniform_set_A = rd.uniform_set_create([sort_in_uniform_A, sort_out_uniform_A, histogram_uniform_set1], radixsort_shader, 1)
+
+	var sort_in_uniform_B := RDUniform.new()
+	sort_in_uniform_B.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
+	sort_in_uniform_B.binding = 0
+	sort_in_uniform_B.add_id(depth_out_buffer)
+
+	var sort_out_uniform_B := RDUniform.new()
+	sort_out_uniform_B.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
+	sort_out_uniform_B.binding = 1
+	sort_out_uniform_B.add_id(cull_buffer)
+
+	sort_uniform_set_B = rd.uniform_set_create([sort_in_uniform_B, sort_out_uniform_B, histogram_uniform_set1], radixsort_shader, 1)
+
 	
 	# Counter buffer (only one uint)
 	var zero = PackedByteArray()
@@ -388,61 +437,46 @@ func _on_viewport_size_changed():
 
 	
 func radix_sort():
-	# Read visible count
 	visible_count = rd.buffer_get_data(visible_counter_buffer).to_int32_array()[0]
-	
-	globalInvocationSize = visible_count / NUM_BLOCKS_PER_WORKGROUP
-	var remainder = visible_count % NUM_BLOCKS_PER_WORKGROUP
-	if remainder > 0:
-		globalInvocationSize += 1
-	
-	# Skip sort if nothing visible
-	if visible_count == 0:
+
+	if visible_count < 2:
 		return
 
+	var WORKGROUP_SIZE = 512
+	# This logic assumes g_num_blocks_per_workgroup is 1. If it's higher, adjust accordingly.
+	# The key is that total_invocations = num_workgroups * WORKGROUP_SIZE * g_num_blocks_per_workgroup
+	var num_workgroups = int(ceil(float(visible_count) / WORKGROUP_SIZE))
+
 	var compute_list := rd.compute_list_begin()
-	for i in range(4):
-		var push_constant = PackedInt32Array([visible_count, i * 8, NUM_WORKGROUPS, NUM_BLOCKS_PER_WORKGROUP])
 
-		depth_uniform.clear_ids()
-		depth_out_uniform.clear_ids()
+	for i in range(4): # 4 passes for a 32-bit key
+		var bit_shift = i * 8
+		var push_constant = PackedInt32Array([visible_count, bit_shift, num_workgroups, 1]) # Assuming g_num_blocks_per_workgroup is 1 now.
+		var push_constant_bytes = push_constant.to_byte_array()
 
-		# Use compacted buffer as input
-		if i == 0 or i == 2:
-			depth_uniform.add_id(cull_buffer)
-			depth_out_uniform.add_id(depth_out_buffer)
-		else:
-			depth_uniform.add_id(depth_out_buffer)
-			depth_out_uniform.add_id(cull_buffer)
+		var is_even_pass = (i % 2 == 0)
 
-		# Histogram and sort stages (same as before)
-		var histogram_bindings = [
-			depth_uniform,
-			histogram_uniform_set0
-		]
-		var hist_uniform_set = rd.uniform_set_create(histogram_bindings, radixsort_hist_shader, 0)
+		# Determine which pre-made sets to use for this pass
+		var current_hist_set = hist_uniform_set_A if is_even_pass else hist_uniform_set_B
+		var current_sort_set = sort_uniform_set_A if is_even_pass else sort_uniform_set_B
 
+		# --- 1. Histogram Pass ---
 		rd.compute_list_bind_compute_pipeline(compute_list, histogram_pipeline)
-		rd.compute_list_set_push_constant(compute_list, push_constant.to_byte_array(), push_constant.size() * 4)
-		rd.compute_list_bind_uniform_set(compute_list, hist_uniform_set, 0)
-		rd.compute_list_dispatch(compute_list, globalInvocationSize, 1, 1)
+		rd.compute_list_set_push_constant(compute_list, push_constant_bytes, push_constant_bytes.size())
+		rd.compute_list_bind_uniform_set(compute_list, current_hist_set, 0)
+		rd.compute_list_dispatch(compute_list, num_workgroups, 1, 1)
+
 		rd.compute_list_add_barrier(compute_list)
 
-		var radixsort_bindings = [
-			depth_uniform,
-			depth_out_uniform,
-			histogram_uniform_set1
-		]
-		var sort_uniform_set = rd.uniform_set_create(radixsort_bindings, radixsort_shader, 1)
-
+		# --- 2. Sort (Scatter) Pass ---
 		rd.compute_list_bind_compute_pipeline(compute_list, sort_pipeline)
-		rd.compute_list_set_push_constant(compute_list, push_constant.to_byte_array(), push_constant.size() * 4)
-		rd.compute_list_bind_uniform_set(compute_list, sort_uniform_set, 1)
-		rd.compute_list_dispatch(compute_list, globalInvocationSize, 1, 1)
+		rd.compute_list_set_push_constant(compute_list, push_constant_bytes, push_constant_bytes.size())
+		rd.compute_list_bind_uniform_set(compute_list, current_sort_set, 1)
+		rd.compute_list_dispatch(compute_list, num_workgroups, 1, 1)
+
 		rd.compute_list_add_barrier(compute_list)
 
 	rd.compute_list_end()
-
 
 # Called every frame. 'delta' is the elapsed time since the previous frame.
 func update():	
@@ -504,10 +538,10 @@ func _sort_splats_by_depth():
 
 	var position_delta = new_position.distance_to(last_position)
 
-	if angle_change > 0.05 or position_delta > 0.05:
-		compute_depth_and_visibility()
-		radix_sort()
-		last_direction = new_direction
-		last_position = new_position
+	#if angle_change > 0.2 or position_delta > 0.2:
+	compute_depth_and_visibility()
+	radix_sort()
+		#last_direction = new_direction
+		#last_position = new_position
 
 		
