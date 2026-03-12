@@ -56,7 +56,7 @@ var visible_count: int = 0
 var max_sort_workgroups: int = 1
 
 var num_coeffs = 45
-var num_coeffs_per_color = num_coeffs / 3
+var num_coeffs_per_color: int = num_coeffs / 3
 var sh_degree = sqrt(num_coeffs_per_color + 1) - 1
 var active_sh_degree: float = sh_degree
 var modifier: float = 1.0
@@ -68,12 +68,12 @@ var vertices: PackedFloat32Array
 
 
 func _matrix_to_bytes(t: Transform3D) -> PackedByteArray:
-	var basis: Basis = t.basis
+	var _basis: Basis = t.basis
 	var origin: Vector3 = t.origin
 	return PackedFloat32Array([
-		basis.x.x, basis.x.y, basis.x.z, 0.0,
-		basis.y.x, basis.y.y, basis.y.z, 0.0,
-		basis.z.x, basis.z.y, basis.z.z, 0.0,
+		_basis.x.x,_basis.x.y,_basis.x.z, 0.0,
+		_basis.y.x,_basis.y.y,_basis.y.z, 0.0,
+		_basis.z.x,_basis.z.y,_basis.z.z, 0.0,
 		origin.x, origin.y, origin.z, 1.0,
 	]).to_byte_array()
 
