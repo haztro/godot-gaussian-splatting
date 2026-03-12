@@ -3,7 +3,7 @@ extends Node3D
 @onready var camera = get_node("Camera")
 @onready var screen_texture = get_node("TextureRect")
 
-@export_file var splat_filename: String = "garden.ply"
+@export_file var splat_filename: String
 @export var render_texture_size: Vector2i = Vector2i(1152, 648)
 
 const NUM_PROPERTIES = 62
@@ -59,10 +59,7 @@ var max_sort_workgroups: int = 1
 var num_coeffs: int = 45
 var num_coeffs_per_color: int = num_coeffs / 3
 var sh_degree = sqrt(num_coeffs_per_color + 1) - 1
-var active_sh_degree: float = sh_degree
 var modifier: float = 1.0
-var last_direction := Vector3.ZERO
-var last_position := Vector3.ZERO
 
 var vertices: PackedFloat32Array
 

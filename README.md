@@ -1,7 +1,13 @@
-# Godot 3D Gaussian Splatting
+# Godot Gaussian Splat Viewer
 
-This is a WIP Godot 4.3 implementation of 3D Gaussian splatting. The current renderer keeps the pipeline simple: a compute preprocess pass projects splats into screen space and builds depth sort keys for visible splats, a global radix sort orders those keys back-to-front, and the draw pass shades lightweight quads from cached projected data.
+Godot 4.6 implementation of a Gaussian splat viewer. The renderer uses a compute preprocess pass to project visible splats and build depth keys, then uses compute-shader radix sort to sort them back-to-front before drawing them as screen-aligned quads.
 
-To keep interaction smooth, the renderer now just rebuilds immediately when motion or view parameters invalidate the order. During motion it can use a cheaper SH degree, then switch back to full SH once movement stops. The radix sort batches multiple 512-element blocks per dispatched workgroup to cut the number of histogram rows and reduce the sort shader's expensive global-offset scan.
+To try it out, define the `splat_filename` export as the `.ply` file you want to view.
 
-To try it out, define the "splat_filename" export as the .ply file you want to view.
+## Example Views
+
+![bicycle](assets/bicycle.PNG)
+
+![train](assets/train.PNG)
+
+![garden](assets/garden.PNG)
