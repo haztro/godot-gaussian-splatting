@@ -3,21 +3,15 @@ extends Node3D
 @onready var camera = get_node("Camera")
 @onready var screen_texture = get_node("TextureRect")
 @export var splat_filename: String = "garden.ply"
-@export var moving_sort_interval_frames: int = 0
-@export var settle_delay_frames: int = 0
 @export var moving_sh_degree: int = 0
 
 const NUM_PROPERTIES = 62
 const PROJECTED_SPLAT_FLOATS = 11
 const PREPROCESS_WORKGROUP_SIZE = 512
 const SORT_WORKGROUP_SIZE = 512
-const SORT_BLOCKS_PER_WORKGROUP = 8
+const SORT_BLOCKS_PER_WORKGROUP = 16
 const RADIX_SORT_BINS = 256
-const DEPTH_KEY_BITS = 16
-const DEPTH_KEY_MAX = (1 << DEPTH_KEY_BITS) - 1
-const SORT_PASSES = 2
-const SORT_ANGLE_THRESHOLD = 0.001
-const SORT_POSITION_THRESHOLD = 0.001
+const SORT_PASSES = 2 
 
 var rd = RenderingServer.get_rendering_device()
 var pipeline: RID
@@ -68,8 +62,6 @@ var active_sh_degree: float = sh_degree
 var modifier: float = 1.0
 var last_direction := Vector3.ZERO
 var last_position := Vector3.ZERO
-var frames_since_motion: int = 0
-var frames_since_sort: int = 999999
 var sort_invalidated := true
 
 var vertices: PackedFloat32Array
@@ -138,12 +130,6 @@ func _update_camera_and_params_buffers():
 	rd.buffer_update(camera_matrices_buffer, 0, camera_bytes.size(), camera_bytes)
 	var params_bytes = _build_params_bytes()
 	rd.buffer_update(params_buffer, 0, params_bytes.size(), params_bytes)
-
-
-func _mark_sort_invalidated():
-	sort_invalidated = true
-	frames_since_sort = moving_sort_interval_frames
-
 
 func _load_ply_file():
 	var file = FileAccess.open(splat_filename, FileAccess.READ)
@@ -318,12 +304,7 @@ func _ready():
 	render()
 
 
-func _rebuild_sort_now(use_moving_quality := false):
-	active_sh_degree = float(moving_sh_degree if use_moving_quality else int(sh_degree))
-	var params_bytes = _build_params_bytes()
-	rd.buffer_update(params_buffer, 0, params_bytes.size(), params_bytes)
-	rd.buffer_update(visible_counter_buffer, 0, 4, PackedByteArray([0, 0, 0, 0]))
-
+func _preprocess():
 	var preprocess_list = rd.compute_list_begin()
 	rd.compute_list_bind_compute_pipeline(preprocess_list, preprocess_pipeline)
 	rd.compute_list_bind_uniform_set(preprocess_list, preprocess_uniform_set0, 0)
@@ -332,11 +313,11 @@ func _rebuild_sort_now(use_moving_quality := false):
 	rd.compute_list_dispatch(preprocess_list, preprocess_groups, 1, 1)
 	rd.compute_list_end()
 
+func _sort_stuff():
 	visible_count = rd.buffer_get_data(visible_counter_buffer).to_int32_array()[0]
 	current_dynamic_uniform_set = dynamic_uniform_set_A
 	if visible_count < 2:
 		sort_invalidated = false
-		frames_since_sort = 0
 		return
 
 	var num_workgroups = int(ceil(float(visible_count) / float(SORT_WORKGROUP_SIZE * SORT_BLOCKS_PER_WORKGROUP)))
@@ -360,7 +341,14 @@ func _rebuild_sort_now(use_moving_quality := false):
 
 	current_dynamic_uniform_set = dynamic_uniform_set_A if (SORT_PASSES % 2 == 0) else dynamic_uniform_set_B
 	sort_invalidated = false
-	frames_since_sort = 0
+	
+func _rebuild_sort_now():
+	rd.buffer_update(visible_counter_buffer, 0, 4, PackedByteArray([0, 0, 0, 0]))
+	
+	_preprocess()
+	
+	_sort_stuff()
+
 
 
 func _on_viewport_size_changed():
@@ -376,12 +364,12 @@ func _on_viewport_size_changed():
 		RDPipelineDepthStencilState.new(),
 		blend
 	)
-	_mark_sort_invalidated()
 
 
 func update():
+	active_sh_degree = 0
 	_update_camera_and_params_buffers()
-	_sort_splats_by_depth()
+	_rebuild_sort_now()
 
 
 func render():
@@ -402,30 +390,5 @@ func _input(event):
 	if event is InputEventMouseButton:
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP and event.pressed:
 			modifier += 0.05
-			_mark_sort_invalidated()
 		if event.button_index == MOUSE_BUTTON_WHEEL_DOWN and event.pressed:
 			modifier -= 0.05
-			_mark_sort_invalidated()
-
-
-func _sort_splats_by_depth():
-	var new_position = camera.global_transform.origin
-	var new_direction = camera.global_transform.basis.z.normalized()
-	var direction_delta = last_direction.dot(new_direction)
-	var angle_change = acos(clamp(direction_delta, -1.0, 1.0))
-	var position_delta = new_position.distance_to(last_position)
-	var is_moving = angle_change >= SORT_ANGLE_THRESHOLD or position_delta >= SORT_POSITION_THRESHOLD
-
-	if is_moving:
-		frames_since_motion = 0
-		sort_invalidated = true
-		if frames_since_sort >= max(1, moving_sort_interval_frames):
-			_rebuild_sort_now(true)
-	else:
-		frames_since_motion += 1
-		if sort_invalidated and frames_since_motion >= max(1, settle_delay_frames):
-			_rebuild_sort_now(false)
-
-	frames_since_sort += 1
-	last_direction = new_direction
-	last_position = new_position
