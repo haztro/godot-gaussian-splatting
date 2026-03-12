@@ -6,12 +6,19 @@
 [node name="main" type="Node3D" unique_id=776081951]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 4.56234)
 script = ExtResource("1_j5eux")
+splat_filename = "res://garden.ply"
 
 [node name="Camera" type="Camera3D" parent="." unique_id=1118944673]
+transform = Transform3D(0.9998477, 0.017452406, 0, -0.015114226, 0.8658935, -0.5, -0.008726203, 0.49992386, 0.8660254, 0, -1, 0)
 current = true
 fov = 37.8
 script = ExtResource("2_ppc5i")
 
 [node name="TextureRect" type="TextureRect" parent="." unique_id=2013012828]
-offset_right = 40.0
-offset_bottom = 40.0
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+expand_mode = 1
+stretch_mode = 4

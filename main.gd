@@ -2,8 +2,9 @@ extends Node3D
 
 @onready var camera = get_node("Camera")
 @onready var screen_texture = get_node("TextureRect")
-@export var splat_filename: String = "garden.ply"
-@export var moving_sh_degree: int = 0
+
+@export_file var splat_filename: String = "garden.ply"
+@export var render_texture_size: Vector2i = Vector2i(1152, 648)
 
 const NUM_PROPERTIES = 62
 const PROJECTED_SPLAT_FLOATS = 11
@@ -55,14 +56,13 @@ var num_vertex: int = 0
 var visible_count: int = 0
 var max_sort_workgroups: int = 1
 
-var num_coeffs = 45
+var num_coeffs: int = 45
 var num_coeffs_per_color: int = num_coeffs / 3
 var sh_degree = sqrt(num_coeffs_per_color + 1) - 1
 var active_sh_degree: float = sh_degree
 var modifier: float = 1.0
 var last_direction := Vector3.ZERO
 var last_position := Vector3.ZERO
-var sort_invalidated := true
 
 var vertices: PackedFloat32Array
 
@@ -109,18 +109,18 @@ func _build_camera_buffer_bytes() -> PackedByteArray:
 
 func _build_params_bytes() -> PackedByteArray:
 	var tan_fovy = tan(deg_to_rad(camera.fov) * 0.5)
-	var tan_fovx = tan_fovy * get_viewport().size.x / get_viewport().size.y
-	var focal_y = get_viewport().size.y / (2 * tan_fovy)
-	var focal_x = get_viewport().size.x / (2 * tan_fovx)
+	var tan_fovx = tan_fovy * render_texture_size.x / render_texture_size.y
+	var focal_y = render_texture_size.y / (2 * tan_fovy)
+	var focal_x = render_texture_size.x / (2 * tan_fovx)
 	return PackedFloat32Array([
-		get_viewport().size.x,
-		get_viewport().size.y,
+		render_texture_size.x,
+		render_texture_size.y,
 		tan_fovx,
 		tan_fovy,
 		focal_x,
 		focal_y,
 		modifier,
-		active_sh_degree,
+		0, # sh_degree
 		float(num_vertex),
 	]).to_byte_array()
 
@@ -130,6 +130,7 @@ func _update_camera_and_params_buffers():
 	rd.buffer_update(camera_matrices_buffer, 0, camera_bytes.size(), camera_bytes)
 	var params_bytes = _build_params_bytes()
 	rd.buffer_update(params_buffer, 0, params_bytes.size(), params_bytes)
+
 
 func _load_ply_file():
 	var file = FileAccess.open(splat_filename, FileAccess.READ)
@@ -159,8 +160,8 @@ func _initialise_framebuffer_format():
 	var tex_format := RDTextureFormat.new()
 	var tex_view := RDTextureView.new()
 	tex_format.texture_type = RenderingDevice.TEXTURE_TYPE_2D
-	tex_format.height = get_viewport().size.y
-	tex_format.width = get_viewport().size.x
+	tex_format.height = render_texture_size.y
+	tex_format.width = render_texture_size.x
 	tex_format.format = RenderingDevice.DATA_FORMAT_R32G32B32A32_SFLOAT
 	tex_format.usage_bits = RenderingDevice.TEXTURE_USAGE_COLOR_ATTACHMENT_BIT | RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT
 	output_tex = rd.texture_create(tex_format, tex_view)
@@ -176,8 +177,6 @@ func _initialise_framebuffer_format():
 
 
 func _ready():
-	get_viewport().size_changed.connect(_on_viewport_size_changed)
-
 	print("unpacking .ply file data...")
 	_load_ply_file()
 	max_sort_workgroups = max(1, int(ceil(float(num_vertex) / float(SORT_WORKGROUP_SIZE * SORT_BLOCKS_PER_WORKGROUP))))
@@ -317,9 +316,8 @@ func _rebuild_sort_now():
 
 	visible_count = rd.buffer_get_data(visible_counter_buffer).to_int32_array()[0]
 	current_dynamic_uniform_set = dynamic_uniform_set_A
-	if visible_count < 2:
-		sort_invalidated = false
-		return
+	
+	if visible_count < 2: return
 
 	var num_workgroups = int(ceil(float(visible_count) / float(SORT_WORKGROUP_SIZE * SORT_BLOCKS_PER_WORKGROUP)))
 	var compute_list := rd.compute_list_begin()
@@ -341,27 +339,9 @@ func _rebuild_sort_now():
 	rd.compute_list_end()
 
 	current_dynamic_uniform_set = dynamic_uniform_set_A if (SORT_PASSES % 2 == 0) else dynamic_uniform_set_B
-	sort_invalidated = false
-
-
-
-func _on_viewport_size_changed():
-	var framebuf_format = _initialise_framebuffer_format()
-	framebuffer = rd.framebuffer_create([output_tex], framebuf_format)
-	pipeline = rd.render_pipeline_create(
-		shader,
-		framebuf_format,
-		vertex_format,
-		RenderingDevice.RENDER_PRIMITIVE_TRIANGLE_STRIPS,
-		RDPipelineRasterizationState.new(),
-		RDPipelineMultisampleState.new(),
-		RDPipelineDepthStencilState.new(),
-		blend
-	)
 
 
 func update():
-	active_sh_degree = 0
 	_update_camera_and_params_buffers()
 	_rebuild_sort_now()
 
