@@ -48,7 +48,6 @@ void main() {
     uint lID = gl_LocalInvocationID.x;
     uint wID = gl_WorkGroupID.x;
     uint sID = gl_SubgroupID;
-    uint lsID = gl_SubgroupInvocationID;
 
     uint local_histogram = 0;
     uint prefix_sum = 0;
@@ -72,7 +71,10 @@ void main() {
     barrier();
 
     if (lID < RADIX_SORT_BINS) {
-        const uint sums_prefix_sum = subgroupBroadcast(subgroupExclusiveAdd(sums[lsID]), sID);
+        uint sums_prefix_sum = 0;
+        for (uint i = 0; i < sID; i++) {
+            sums_prefix_sum += sums[i];
+        }
         const uint global_histogram = sums_prefix_sum + prefix_sum;
         global_offsets[lID] = global_histogram + local_histogram;
     }

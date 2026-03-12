@@ -304,7 +304,9 @@ func _ready():
 	render()
 
 
-func _preprocess():
+func _rebuild_sort_now():
+	rd.buffer_update(visible_counter_buffer, 0, 4, PackedByteArray([0, 0, 0, 0]))
+
 	var preprocess_list = rd.compute_list_begin()
 	rd.compute_list_bind_compute_pipeline(preprocess_list, preprocess_pipeline)
 	rd.compute_list_bind_uniform_set(preprocess_list, preprocess_uniform_set0, 0)
@@ -313,7 +315,6 @@ func _preprocess():
 	rd.compute_list_dispatch(preprocess_list, preprocess_groups, 1, 1)
 	rd.compute_list_end()
 
-func _sort_stuff():
 	visible_count = rd.buffer_get_data(visible_counter_buffer).to_int32_array()[0]
 	current_dynamic_uniform_set = dynamic_uniform_set_A
 	if visible_count < 2:
@@ -341,13 +342,6 @@ func _sort_stuff():
 
 	current_dynamic_uniform_set = dynamic_uniform_set_A if (SORT_PASSES % 2 == 0) else dynamic_uniform_set_B
 	sort_invalidated = false
-	
-func _rebuild_sort_now():
-	rd.buffer_update(visible_counter_buffer, 0, 4, PackedByteArray([0, 0, 0, 0]))
-	
-	_preprocess()
-	
-	_sort_stuff()
 
 
 
