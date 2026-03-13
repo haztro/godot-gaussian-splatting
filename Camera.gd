@@ -16,7 +16,7 @@ var _velocity := Vector3.ZERO
 func _ready():
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	_target_basis = transform.basis
-
+	
 func _input(event):
 	if event is InputEventMouseMotion:
 		var yaw_angle = deg_to_rad(event.relative.x * mouse_sensitivity)
@@ -26,6 +26,8 @@ func _input(event):
 		_target_basis = _target_basis * Basis(Vector3(1.0, 0.0, 0.0), pitch_angle)
 
 func _process(delta):
+	if Input.is_action_just_pressed('ui_cancel'):
+		get_tree().quit()
 		
 	if Input.is_action_pressed("roll_cw"):
 		_target_basis = _target_basis * Basis(Vector3(0.0, 0.0, 1.0), deg_to_rad(-roll_speed * delta))
