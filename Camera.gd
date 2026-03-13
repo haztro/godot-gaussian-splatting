@@ -14,6 +14,7 @@ var _target_basis := Basis()
 var _velocity := Vector3.ZERO
 
 func _ready():
+	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	_target_basis = transform.basis
 
 func _input(event):
@@ -25,10 +26,6 @@ func _input(event):
 		_target_basis = _target_basis * Basis(Vector3(1.0, 0.0, 0.0), pitch_angle)
 
 func _process(delta):
-	if Input.is_action_pressed("left_mouse_btn"):
-		Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
-	else:
-		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 		
 	if Input.is_action_pressed("roll_cw"):
 		_target_basis = _target_basis * Basis(Vector3(0.0, 0.0, 1.0), deg_to_rad(-roll_speed * delta))
