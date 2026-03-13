@@ -12,7 +12,7 @@ const PREPROCESS_WORKGROUP_SIZE = 512
 const SORT_WORKGROUP_SIZE = 512
 const SORT_BLOCKS_PER_WORKGROUP = 16
 const RADIX_SORT_BINS = 256
-const SORT_PASSES = 2 
+const SORT_PASSES = 4
 
 var rd = RenderingServer.get_rendering_device()
 var pipeline: RID

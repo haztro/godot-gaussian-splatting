@@ -9,6 +9,7 @@
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 4.56234)
 script = ExtResource("1_j5eux")
 splat_filename = "res://garden.ply"
+render_texture_size = Vector2i(1920, 1080)
 
 [node name="Camera" type="Camera3D" parent="." unique_id=1118944673]
 transform = Transform3D(0.9998477, 0.017452406, 0, -0.015114226, 0.8658935, -0.5, -0.008726203, 0.49992386, 0.8660254, 0, -1, 0)
