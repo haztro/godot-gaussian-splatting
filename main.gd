@@ -117,7 +117,7 @@ func _build_params_bytes() -> PackedByteArray:
 		focal_x,
 		focal_y,
 		modifier,
-		0, # sh_degree
+		0, #sh_degree,
 		float(num_vertex),
 	]).to_byte_array()
 
